@@ -1,0 +1,11 @@
+# Build outputs
+build/
+*.o
+*.elf
+*.hex
+*.bin
+*.map
+
+# IDE
+.vscode/
+.claude/
