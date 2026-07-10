@@ -173,6 +173,45 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 - 充满后复充阈值: 眼镜电量 <98%
 - LED电量显示: 长亮7s后灭
 
+## 开发进度
+
+实现方式: Claude Code (claude --dangerously-skip-permissions -p "..." --max-turns 30) 实现代码 → 子agent验证 → git commit。GD32 SPL 已解压至 /tmp/gd32_fwlib2/。
+
+| Task | 内容 | 状态 | Commit |
+|------|------|------|--------|
+| 1 | 项目骨架 (SPL/CMSIS/CMake) | DONE | a91119f |
+| 2 | HAL GPIO 初始化 | NEXT | |
+| 3 | HAL USART0 (921600 半双工) | PENDING | |
+| 4 | HAL I2C0 (200kHz) | PENDING | |
+| 5 | HAL EXTI (霍尔/按键/中断) | PENDING | |
+| 6 | HAL Timer (1ms tick) | PENDING | |
+| 7 | HAL 电源切换 ET3328 | PENDING | |
+| 8 | Driver CW2017 电量计 | PENDING | |
+| 9 | Driver IP5353 充放电 | PENDING | |
+| 10 | Driver MT5706 无线充电 | PENDING | |
+| 11 | Driver LED | PENDING | |
+| 12 | Protocol at_types/at_crc | PENDING | |
+| 13 | Protocol at_frame | PENDING | |
+| 14 | Protocol at_opcode | PENDING | |
+| 15 | App 状态机核心 | PENDING | |
+| 16 | App 开盖流程 | PENDING | |
+| 17 | App 关盖流程 | PENDING | |
+| 18 | App OTA 流程 | PENDING | |
+| 19 | App LED 灯效 | PENDING | |
+| 20 | App 低功耗管理 | PENDING | |
+| 21 | App 按键处理 | PENDING | |
+| 22 | main.c 整合 | PENDING | |
+| 23 | 构建验证 | PENDING | |
+| 24 | App 眼镜入盒流程 | PENDING | |
+| 25 | App NTC温度保护 | PENDING | |
+| 26 | App 有线/无线充电仲裁 | PENDING | |
+| 27 | App 复充逻辑 | PENDING | |
+| 28 | App 开盖无眼镜分支 | PENDING | |
+| 29 | App LED并发优先级 | PENDING | |
+| 30 | App 关盖无眼镜分支 | PENDING | |
+| 31 | 5min空闲超时 | CANCELLED (BLE相关) | |
+| 32 | HAL 看门狗 IWDG | PENDING | |
+
 ## 待确认项 (Pending)
 
 1. LED方案: WS2812(PB2) vs 4路GPIO LED(PB8/PB9/PF6/PF7) — 待确认实际PCBA
