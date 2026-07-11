@@ -44,6 +44,9 @@
  * transition so each state paces its first action from its own entry. */
 static uint32_t sm_last_action_ms;
 
+static volatile bool sm_lid_event_pending;
+static volatile bool sm_lid_open_val;
+
 /* State to resume when OTA completes. */
 static sm_state_t sm_prev_state;
 
@@ -202,10 +205,33 @@ void sm_init(sm_ctx_t *ctx) {
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;
+    sm_lid_event_pending = false;
 }
 
 void sm_tick(sm_ctx_t *ctx) {
     uint32_t now = hal_timer_get_ms();
+
+    /* Process deferred lid event from ISR (avoids g_led_ctx race). */
+    if (sm_lid_event_pending) {
+        sm_lid_event_pending = false;
+        ctx->lid_open = sm_lid_open_val;
+        if (ctx->lid_open) {
+            if (ctx->state == ST_IDLE) {
+                sm_enter_state(ctx, ST_HANDSHAKING);
+            }
+            led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+        } else {
+            if (ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING) {
+                if (ctx->glass_present) {
+                    sm_enter_state(ctx, ST_HANDSHAKING);
+                } else {
+                    led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+                }
+            } else if (ctx->state == ST_IDLE) {
+                led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+            }
+        }
+    }
 
     switch (ctx->state) {
     case ST_IDLE:
@@ -236,25 +262,11 @@ void sm_tick(sm_ctx_t *ctx) {
 }
 
 void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line) {
+    (void)ctx;
     switch (exti_line) {
     case HAL_EXTI_LINE_HALL:
-        ctx->lid_open = hal_hall_get();
-        if (ctx->lid_open) {
-            if (ctx->state == ST_IDLE) {
-                sm_enter_state(ctx, ST_HANDSHAKING);
-            }
-            led_effect_show_battery(&g_led_ctx, ctx->case_soc);
-        } else {
-            if (ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING) {
-                if (ctx->glass_present) {
-                    sm_enter_state(ctx, ST_HANDSHAKING);
-                } else {
-                    led_effect_show_battery(&g_led_ctx, ctx->case_soc);
-                }
-            } else if (ctx->state == ST_IDLE) {
-                led_effect_show_battery(&g_led_ctx, ctx->case_soc);
-            }
-        }
+        sm_lid_open_val = hal_hall_get();
+        sm_lid_event_pending = true;
         break;
     case HAL_EXTI_LINE_KEY:
         break;

@@ -6,11 +6,11 @@
  * This verifies every major transition path described in CONTEXT.md.
  */
 
-#include "test_assert.h"
-#include "state_machine.h"
+#include "led.h"
 #include "led_effect.h"
 #include "ota_flow.h"
-#include "led.h"
+#include "state_machine.h"
+#include "test_assert.h"
 
 /* --- mock timer --- */
 static uint32_t mock_time_ms;
@@ -54,15 +54,25 @@ bool sm_do_shutdown(void) {
 /* stubs for other deps */
 void pm_enter_deep_sleep(void) {}
 void hal_pwr_idle(void) {}
-void led_effect_show_battery(led_effect_ctx_t *ctx, uint8_t soc) { (void)ctx; (void)soc; }
-int ota_run(sm_ctx_t *ctx, ota_progress_cb_t cb) { (void)ctx; (void)cb; return 0; }
+void led_effect_show_battery(led_effect_ctx_t *ctx, uint8_t soc) {
+    (void)ctx;
+    (void)soc;
+}
+int ota_run(sm_ctx_t *ctx, ota_progress_cb_t cb) {
+    (void)ctx;
+    (void)cb;
+    return 0;
+}
 void ota_init(void) {}
 int8_t cw2017_get_temp_c(void) { return 25; }
 void mt5706_disable(void) {}
 void mt5706_enable(void) {}
 bool mt5706_has_event(void) { return false; }
 void led_all_off(void) {}
-void led_set(led_color_t color, led_mode_t mode) { (void)color; (void)mode; }
+void led_set(led_color_t color, led_mode_t mode) {
+    (void)color;
+    (void)mode;
+}
 
 led_effect_ctx_t g_led_ctx;
 static bool mock_hall_state;
@@ -109,6 +119,7 @@ static void test_lid_open_starts_handshake(void) {
     reset_sm(&ctx);
     mock_hall_state = true;
     sm_handle_event(&ctx, 4);
+    sm_tick(&ctx); /* deferred processing in main loop */
     TEST_ASSERT(ctx.lid_open, "Lid should be open after HALL event");
     TEST_ASSERT_EQ(ctx.state, ST_HANDSHAKING, "Should enter handshaking");
 }
