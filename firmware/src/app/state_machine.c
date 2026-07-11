@@ -5,30 +5,30 @@
 #include "hal_timer.h"
 
 /* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
-#define SM_HANDSHAKE_5V_PULSE_MS  300U /* 5V wake pulse length              */
+#define SM_HANDSHAKE_5V_PULSE_MS 300U  /* 5V wake pulse length              */
 #define SM_HANDSHAKE_DISCHARGE_MS 100U /* bus bleed before UART             */
-#define SM_HANDSHAKE_HB_GAP_MS    100U /* gap between heartbeat retries     */
-#define SM_HANDSHAKE_HB_RETRIES   3U   /* heartbeat attempts per handshake  */
-#define SM_HANDSHAKE_TIMEOUT_MS   30000U /* give up window before force charge */
+#define SM_HANDSHAKE_HB_GAP_MS 100U    /* gap between heartbeat retries     */
+#define SM_HANDSHAKE_HB_RETRIES 3U     /* heartbeat attempts per handshake  */
+#define SM_HANDSHAKE_TIMEOUT_MS 30000U /* give up window before force charge */
 
-#define SM_MAINTAIN_HB_MS         1000U /* <1.2s keeps the glass present    */
+#define SM_MAINTAIN_HB_MS 1000U /* <1.2s keeps the glass present    */
 
-#define SM_CHARGE_POLL_OPEN_MS    30000U  /* heartbeat period, lid open     */
-#define SM_CHARGE_POLL_CLOSED_MS  60000U  /* heartbeat period, lid shut     */
+#define SM_CHARGE_POLL_OPEN_MS 30000U   /* heartbeat period, lid open     */
+#define SM_CHARGE_POLL_CLOSED_MS 60000U /* heartbeat period, lid shut     */
 
-#define SM_FORCE_PROBE_GAP_MS     (3U * 60U * 1000U) /* probe cadence        */
-#define SM_FORCE_TIMEOUT_MS       (9U * 60U * 1000U) /* total force window   */
+#define SM_FORCE_PROBE_GAP_MS (3U * 60U * 1000U) /* probe cadence        */
+#define SM_FORCE_TIMEOUT_MS (9U * 60U * 1000U)   /* total force window   */
 
-#define SM_SHUTDOWN_GAP_MS        100U /* AT request/response deadline      */
-#define SM_SHUTDOWN_RETRIES       5U
+#define SM_SHUTDOWN_GAP_MS 100U /* AT request/response deadline      */
+#define SM_SHUTDOWN_RETRIES 5U
 
-#define SM_LOW_SOC_PCT            15U  /* charge vs maintain threshold       */
+#define SM_LOW_SOC_PCT 15U /* charge vs maintain threshold       */
 
 /* One full handshake attempt covers the 5V pulse, the discharge, and the gaps
  * between retries (the final retry needs no trailing gap). Pacing sm_tick() at
  * this interval keeps attempts from piling up back-to-back. */
-#define SM_HANDSHAKE_ATTEMPT_GAP_MS                                                  \
-    (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS +                         \
+#define SM_HANDSHAKE_ATTEMPT_GAP_MS                                                                \
+    (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS +                                        \
      (SM_HANDSHAKE_HB_GAP_MS * (SM_HANDSHAKE_HB_RETRIES - 1U)))
 
 /* Timestamp of the last paced action within the current state. Reset on every
@@ -53,31 +53,21 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next) {
 
 /* Drive the full wake sequence on the POGO link: a 5V pulse, a bus discharge,
  * then up to three heartbeat attempts. Returns true once the glass replies. */
-static bool sm_do_handshake(void) {
-    return true;
-}
+static bool sm_do_handshake(void) { return true; }
 
 /* Send one heartbeat during charging and refresh glass status. Returns true if
  * the glass answered. */
-static bool sm_do_charge_poll(void) {
-    return true;
-}
+static bool sm_do_charge_poll(void) { return true; }
 
 /* Send the sub-1.2s keep-alive heartbeat used while the case is too low to
  * charge but must hold the glass in-box. */
-static bool sm_do_maintain_heartbeat(void) {
-    return true;
-}
+static bool sm_do_maintain_heartbeat(void) { return true; }
 
 /* Send one heartbeat probe during blind force-charging. */
-static bool sm_do_force_charge_probe(void) {
-    return true;
-}
+static bool sm_do_force_charge_probe(void) { return true; }
 
 /* Deliver the shutdown command to the glass. */
-static bool sm_do_shutdown(void) {
-    return true;
-}
+static bool sm_do_shutdown(void) { return true; }
 
 static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     if (!hal_timer_expired(sm_last_action_ms, SM_HANDSHAKE_ATTEMPT_GAP_MS)) {
