@@ -175,14 +175,19 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 
 ## 开发进度
 
-实现方式: Claude Code + Hermes 手写 → 编译验证 → clang-format → git commit。Flash 30.9% (19924B/64KB), RAM 52.3% (4288B/8KB)。
+状态: 软件功能开发完成，等待硬件验证
+最新提交: bfc1d2f (2026-07-11)
+Flash: 20408B / 64KB = 31.9%
+RAM: 4288B / 8KB = 52.3%
+源文件: 45 个 (.c + .h)
+测试文件: 8 个，4 个测试套件，99 个 assertion，全部通过
 
 | Task | 内容 | 状态 | Commit |
 |------|------|------|--------|
 | 1 | 项目骨架 (SPL/CMSIS/CMake) | DONE | a91119f |
 | 2 | HAL GPIO 初始化 | DONE | 95b7e67 |
 | 3 | HAL USART0 (921600 半双工) | DONE | 0212d3c |
-| 4 | HAL I2C0 (200kHz) | DONE | c66cf7e |
+| 4 | HAL I2C0 (200kHz) + 总线恢复 | DONE | c66cf7e, bfc1d2f |
 | 5 | HAL EXTI (霍尔/按键/中断) | DONE | faa2f1c |
 | 6 | HAL Timer (1ms tick) | DONE | 5c8c9b7 |
 | 7 | HAL 电源切换 ET3328 | DONE | 41dacd3 |
@@ -212,12 +217,55 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 | 31 | 5min空闲超时 | CANCELLED (BLE相关) | |
 | 32 | HAL 看门狗 IWDG | DONE | 6fcd38d |
 
-集成修复: NTC温度保护/充电仲裁/复充/OTA调用/低电关机 — f36b374
-关盖事件/无眼镜显示/Deep-Sleep/SOC刷新/按键动作 — 2ab35c7
+集成修复历史:
+- NTC温度保护/充电仲裁/复充/OTA调用/低电关机 — f36b374
+- 关盖事件/无眼镜显示/Deep-Sleep/SOC刷新/按键动作 — 2ab35c7
+- ISR竞争修复 (g_led_ctx deferred to main loop) — 6cc6574
+- Deep-Sleep EXTI pending清除 + I2C总线恢复 — bfc1d2f
+
+测试套件:
+| Suite | Assertions | 覆盖范围 |
+|-------|-----------|---------|
+| gpio_config | 24 | 引脚初始化/AF编号/LED电平/按键电平/使能控制 |
+| protocol | 18 | CRC8/帧组装/帧解析/Magic校验/坏CRC拒绝/roundtrip |
+| charge_flow | 38 | case_soc/sta字节构建/NTC分区/复充判断/充电仲裁 |
+| state_machine | 19 | 全部状态转换路径/握手成功失败/低电关机/shutdown retry |
+
+## 已知限制 (Known Limitations)
+
+1. 阻塞调用: charge_flow 中握手序列阻塞约 800ms (5V 300ms + 泄放 100ms + retry 3×100ms)
+   - 期间 LED 呼吸冻结、按键无响应
+   - 看门狗超时 2s，不触发复位
+   - 这是文档要求的物理时序，不可缩短
+   - 如需消除卡顿可将 charge_flow 改为非阻塞状态机（代码量约翻倍）
+
+2. OTA 阻塞: ota_run() 同步执行，期间主循环停滞
+   - 内部每个 exchange 循环喂看门狗，不会复位
+   - 传输时间取决于固件大小（921600 baud）
+
+3. Deep-Sleep 时钟: SysTick 在 Deep-Sleep 期间停止
+   - 唤醒后 hal_timer_get_ms() 时间不连续
+   - 当前架构只在 ST_IDLE 时 sleep，握手/充电不经过 IDLE，不影响
 
 ## 待确认项 (Pending)
 
-1. LED方案: WS2812(PB2) vs 4路GPIO LED(PB8/PB9/PF6/PF7) — 待确认实际PCBA
-   - 不阻塞开发，hal层抽象接口，后续切换驱动文件即可
-2. A-SP1924RBGWW datasheet — 标注在POGO驱动区域，可能为霍尔信号调理
-   - 不阻塞开发
+1. LED方案: WS2812(PB2) vs 4路GPIO LED(PB8/PB9/PF6/PF7)
+   - 需确认实际 PCBA 焊接
+   - 不阻塞交付，驱动接口已抽象，切换只改一个文件
+
+2. A-SP1924RBGWW datasheet
+   - POGO 驱动区域标注芯片，可能为霍尔信号调理
+   - 不阻塞功能
+
+## 待硬件验证 (Hardware Verification Required)
+
+以下功能已在软件层面实现和测试，但未在实际硬件上验证:
+
+1. I2C 实际通信 — CW2017/IP5353 寄存器读写
+2. UART 实际通信 — POGO 心跳帧收发
+3. 电源时序 — ET3328 5V/0V/1.8V 切换波形
+4. Deep-Sleep 功耗 — 目标 <50uA
+5. Standby 功耗 — 目标 <5uA
+6. LED 效果 — 呼吸/闪烁/长亮的实际视觉效果
+7. 充电全流程 — 开盖→握手→充电→充满→关机
+8. OTA 实际传输 — 与真实眼镜端通信
