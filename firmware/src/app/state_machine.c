@@ -1,5 +1,6 @@
 #include "state_machine.h"
 
+#include "charge_flow.h"
 #include "hal_exti.h"
 #include "hal_gpio.h"
 #include "hal_timer.h"
@@ -48,26 +49,7 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next) {
     sm_last_action_ms = ctx->state_enter_ms;
 }
 
-/* Hardware actions. These wrap the POGO/protocol sequencing owned by later
- * tasks; each returns success until the real sequencing is wired in. */
-
-/* Drive the full wake sequence on the POGO link: a 5V pulse, a bus discharge,
- * then up to three heartbeat attempts. Returns true once the glass replies. */
-static bool sm_do_handshake(void) { return true; }
-
-/* Send one heartbeat during charging and refresh glass status. Returns true if
- * the glass answered. */
-static bool sm_do_charge_poll(void) { return true; }
-
-/* Send the sub-1.2s keep-alive heartbeat used while the case is too low to
- * charge but must hold the glass in-box. */
-static bool sm_do_maintain_heartbeat(void) { return true; }
-
-/* Send one heartbeat probe during blind force-charging. */
-static bool sm_do_force_charge_probe(void) { return true; }
-
-/* Deliver the shutdown command to the glass. */
-static bool sm_do_shutdown(void) { return true; }
+/* Hardware actions are implemented in charge_flow.c. */
 
 static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     if (!hal_timer_expired(sm_last_action_ms, SM_HANDSHAKE_ATTEMPT_GAP_MS)) {
@@ -75,7 +57,7 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     }
     sm_last_action_ms = now;
 
-    if (sm_do_handshake()) {
+    if (sm_do_handshake(ctx)) {
         ctx->glass_present = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ctx->case_soc > SM_LOW_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
@@ -106,7 +88,7 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
     }
     sm_last_action_ms = now;
 
-    if (sm_do_charge_poll()) {
+    if (sm_do_charge_poll(ctx)) {
         ctx->last_comms_ms = now;
     }
 }
@@ -121,7 +103,7 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
     }
     sm_last_action_ms = now;
 
-    if (sm_do_maintain_heartbeat()) {
+    if (sm_do_maintain_heartbeat(ctx)) {
         ctx->last_comms_ms = now;
     }
 }
@@ -137,7 +119,7 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now) {
     }
     sm_last_action_ms = now;
 
-    if (sm_do_force_charge_probe()) {
+    if (sm_do_force_charge_probe(ctx)) {
         ctx->glass_present = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ST_CHARGING);
