@@ -40,6 +40,7 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
     ${SPL_INC}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/hal
+    ${CMAKE_SOURCE_DIR}/src/protocol
 )
 
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
