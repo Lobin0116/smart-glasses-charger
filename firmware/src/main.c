@@ -1,5 +1,6 @@
 #include "gd32e23x.h"
 
+#include "aux_logic.h"
 #include "button.h"
 #include "charge_flow.h"
 #include "cw2017.h"
@@ -13,6 +14,7 @@
 #include "ip5353.h"
 #include "led.h"
 #include "led_effect.h"
+#include "mt5706.h"
 #include "power_mgmt.h"
 #include "state_machine.h"
 
@@ -43,6 +45,8 @@ static void refresh_case_status(void) {
     bool charging = ip5353_is_charging();
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
+
+    charge_arbitrate(input_valid, mt5706_has_event());
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }

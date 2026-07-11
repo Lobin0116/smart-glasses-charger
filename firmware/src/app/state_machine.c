@@ -1,11 +1,16 @@
 #include "state_machine.h"
 
+#include <stddef.h>
+
 #include "aux_logic.h"
 #include "charge_flow.h"
+#include "cw2017.h"
 #include "hal_exti.h"
 #include "hal_gpio.h"
+#include "hal_pwr.h"
 #include "hal_timer.h"
 #include "led_effect.h"
+#include "ota_flow.h"
 #include "power_mgmt.h"
 
 /* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
@@ -54,6 +59,15 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next) {
 
 /* Hardware actions are implemented in charge_flow.c. */
 
+/* Low-battery path: before sleeping, tell the glasses to shut down. */
+static void sm_goto_idle(sm_ctx_t *ctx) {
+    if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
+        sm_do_shutdown();
+    }
+    hal_pwr_idle();
+    sm_enter_state(ctx, ST_IDLE);
+}
+
 static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     if (!hal_timer_expired(sm_last_action_ms, SM_HANDSHAKE_ATTEMPT_GAP_MS)) {
         return;
@@ -71,21 +85,25 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
         if (ctx->case_soc > SM_LOW_SOC_PCT) {
             sm_enter_state(ctx, ST_FORCE_CHARGING);
         } else {
-            sm_enter_state(ctx, ST_IDLE);
+            sm_goto_idle(ctx);
         }
     }
 }
 
 static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
-    /* Status flags arrive with heartbeats and can request a transition at any
-     * time, independent of the poll cadence. */
     if (ctx->ota_requested) {
         sm_enter_state(ctx, ST_OTA);
         return;
     }
     if (ctx->glass_full) {
-        /* Lid open holds the glass in maintaining; lid shut winds down. */
         sm_enter_state(ctx, ctx->lid_open ? ST_MAINTAINING : ST_SHUTTING_DOWN);
+        return;
+    }
+
+    /* NTC temperature protection: stop charging on critical, no action on normal. */
+    ntc_zone_t zone = ntc_get_zone(cw2017_get_temp_c());
+    if (ntc_should_stop_charge(zone)) {
+        hal_pwr_idle();
         return;
     }
 
@@ -105,6 +123,13 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
         sm_enter_state(ctx, ST_OTA);
         return;
     }
+
+    /* Recharge: if case has enough power and glass dropped below threshold. */
+    if (ctx->case_soc > SM_LOW_SOC_PCT && recharge_check(ctx->glass_soc, ctx->glass_full)) {
+        sm_enter_state(ctx, ST_CHARGING);
+        return;
+    }
+
     if (!hal_timer_expired(sm_last_action_ms, SM_MAINTAIN_HB_MS)) {
         return;
     }
@@ -118,7 +143,7 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
 static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now) {
     /* After the 9-minute window, give up and go back to sleep. */
     if (hal_timer_expired(ctx->state_enter_ms, SM_FORCE_TIMEOUT_MS)) {
-        sm_enter_state(ctx, ST_IDLE);
+        sm_goto_idle(ctx);
         return;
     }
     if (!hal_timer_expired(sm_last_action_ms, SM_FORCE_PROBE_GAP_MS)) {
@@ -137,7 +162,7 @@ static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now) {
     /* Retry a bounded number of times; no reply is read as "already off" and we
      * proceed to sleep regardless. */
     if (ctx->retry_count >= SM_SHUTDOWN_RETRIES) {
-        sm_enter_state(ctx, ST_IDLE);
+        sm_goto_idle(ctx);
         return;
     }
     if (!hal_timer_expired(sm_last_action_ms, SM_SHUTDOWN_GAP_MS)) {
@@ -151,9 +176,11 @@ static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now) {
 
 static void sm_tick_ota(sm_ctx_t *ctx, uint32_t now) {
     (void)now;
-    /* OTA runs to completion under the transfer handler. When the glass clears
-     * the request, resume the state we were interrupted from. */
-    if (!ctx->ota_requested) {
+    if (ctx->retry_count == 0U) {
+        ctx->retry_count = 1U;
+        ota_init();
+        ota_run(ctx, NULL);
+        ctx->ota_requested = false;
         sm_enter_state(ctx, sm_prev_state);
     }
 }
