@@ -14,9 +14,7 @@ void pm_enter_standby(void) {
     pmu_to_standbymode();
 }
 
-void pm_enter_ship_mode(void) {
-    pm_enter_standby();
-}
+void pm_enter_ship_mode(void) { pm_enter_standby(); }
 
 bool pm_check_wakeup_reason(void) {
     rcu_periph_clock_enable(RCU_PMU);
