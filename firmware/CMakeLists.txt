@@ -41,6 +41,8 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/hal
     ${CMAKE_SOURCE_DIR}/src/protocol
+    ${CMAKE_SOURCE_DIR}/src/drivers
+    ${CMAKE_SOURCE_DIR}/src/app
 )
 
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
