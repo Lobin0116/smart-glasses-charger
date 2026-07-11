@@ -43,10 +43,60 @@ static bool hal_i2c_wait_or_err(i2c_flag_enum flag) {
 
 /* Wait for the bus to read idle before asserting START. A slave holding a line low
  * parks I2CBSY; the timeout turns that into a normal failure rather than a hang. */
-static bool hal_i2c_wait_idle(void) { return hal_i2c_wait_flag(I2C_FLAG_I2CBSY, RESET); }
+static bool hal_i2c_wait_idle(void) {
+    if (hal_i2c_wait_flag(I2C_FLAG_I2CBSY, RESET)) {
+        return true;
+    }
+    /* Bus stuck: attempt recovery. */
+    hal_i2c_bus_recover();
+    return hal_i2c_wait_flag(I2C_FLAG_I2CBSY, RESET);
+}
 
 void hal_i2c_init(void) {
     rcu_periph_clock_enable(RCU_I2C0);
+    i2c_deinit(I2C0);
+    i2c_clock_config(I2C0, HAL_I2C_BUS_FREQ_HZ, I2C_DTCY_2);
+    i2c_mode_addr_config(I2C0, I2C_I2CMODE_ENABLE, I2C_ADDFORMAT_7BITS, 0U);
+    i2c_enable(I2C0);
+    i2c_ack_config(I2C0, I2C_ACK_ENABLE);
+}
+
+/* Recover from a bus lock: a slave that held SDA low through a mid-transfer
+ * reset will hold the master's START condition hostage. Toggling SCL nine
+ * times manually clocks the stuck byte out and lets the slave release SDA,
+ * after which a STOP on the GPIO layer frees the bus for a fresh start. */
+void hal_i2c_bus_recover(void) {
+    /* Switch PB6/PB7 to GPIO output mode for manual clocking. */
+    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
+
+    /* Release both lines (open-drain high). */
+    gpio_bit_set(GPIOB, GPIO_PIN_6 | GPIO_PIN_7);
+
+    for (int i = 0; i < 9; i++) {
+        if (gpio_input_bit_get(GPIOB, GPIO_PIN_7)) {
+            break; /* SDA released, no need for more clocks */
+        }
+        gpio_bit_reset(GPIOB, GPIO_PIN_6); /* SCL low */
+        hal_timer_delay_ms(1);
+        gpio_bit_set(GPIOB, GPIO_PIN_6); /* SCL high */
+        hal_timer_delay_ms(1);
+    }
+
+    /* Generate a manual STOP: SDA rises while SCL is high. */
+    gpio_bit_reset(GPIOB, GPIO_PIN_7); /* SDA low */
+    hal_timer_delay_ms(1);
+    gpio_bit_set(GPIOB, GPIO_PIN_6); /* SCL high */
+    hal_timer_delay_ms(1);
+    gpio_bit_set(GPIOB, GPIO_PIN_7); /* SDA high = STOP */
+
+    hal_timer_delay_ms(1);
+
+    /* Restore PB6/PB7 to I2C0 alternate function. */
+    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_10MHZ, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_af_set(GPIOB, GPIO_AF_1, GPIO_PIN_6 | GPIO_PIN_7);
+
     i2c_deinit(I2C0);
     i2c_clock_config(I2C0, HAL_I2C_BUS_FREQ_HZ, I2C_DTCY_2);
     i2c_mode_addr_config(I2C0, I2C_I2CMODE_ENABLE, I2C_ADDFORMAT_7BITS, 0U);

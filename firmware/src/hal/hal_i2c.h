@@ -29,4 +29,9 @@ int hal_i2c_write_reg(uint8_t addr7, uint8_t reg, const uint8_t *data, uint16_t 
  * before STOP. */
 int hal_i2c_read_reg(uint8_t addr7, uint8_t reg, uint8_t *buf, uint16_t len);
 
+/* Recover from a bus lock by manually clocking SCL nine times then issuing a
+ * STOP on the GPIO layer. Called automatically when hal_i2c_wait_idle times out,
+ * but can also be invoked proactively after an error. */
+void hal_i2c_bus_recover(void);
+
 #endif /* HAL_I2C_H */
