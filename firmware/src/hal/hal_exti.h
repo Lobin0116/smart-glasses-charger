@@ -5,11 +5,11 @@
 
 /* EXTI line numbers delivered to the application callback. Each maps 1:1 to a
  * board interrupt input of the same name; the callback dispatches on these. */
-#define HAL_EXTI_LINE_BAT_INT 8U  /* PA8  - fuel gauge IRQ       */
+#define HAL_EXTI_LINE_BAT_INT 8U      /* PA8  - fuel gauge IRQ       */
 #define HAL_EXTI_LINE_CHARGER_INT 11U /* PA11 - wired charge IRQ    */
-#define HAL_EXTI_LINE_COIL_INT 12U /* PA12 - wireless charge IRQ */
-#define HAL_EXTI_LINE_KEY 3U     /* PB3  - user button          */
-#define HAL_EXTI_LINE_HALL 4U    /* PB4  - hall field detect    */
+#define HAL_EXTI_LINE_COIL_INT 12U    /* PA12 - wireless charge IRQ */
+#define HAL_EXTI_LINE_KEY 3U          /* PB3  - user button          */
+#define HAL_EXTI_LINE_HALL 4U         /* PB4  - hall field detect    */
 
 /* A single callback serves every EXTI line; the line number identifies the
  * source. Register once at startup; ISRs no-op while no callback is set. */

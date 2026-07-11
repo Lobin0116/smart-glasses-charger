@@ -27,9 +27,7 @@ static const hal_exti_src_t exti_sources[] = {
 
 static hal_exti_callback_t exti_callback;
 
-static exti_line_enum hal_exti_mask(uint8_t line) {
-    return (exti_line_enum)BIT(line);
-}
+static exti_line_enum hal_exti_mask(uint8_t line) { return (exti_line_enum)BIT(line); }
 
 void hal_exti_init(void) {
     /* SYSCFG gates the registers that route GPIO pads onto EXTI lines. */
@@ -52,9 +50,7 @@ void hal_exti_init(void) {
     nvic_irq_enable(EXTI4_15_IRQn, HAL_EXTI_IRQ_PRIORITY);
 }
 
-void hal_exti_register_callback(hal_exti_callback_t cb) {
-    exti_callback = cb;
-}
+void hal_exti_register_callback(hal_exti_callback_t cb) { exti_callback = cb; }
 
 /* Serve one EXTI line from inside an ISR: clear the pending flag if the edge
  * fired and forward the line number to the registered callback. */
@@ -68,9 +64,7 @@ static void hal_exti_dispatch(uint8_t line) {
     }
 }
 
-void EXTI2_3_IRQHandler(void) {
-    hal_exti_dispatch(HAL_EXTI_LINE_KEY);
-}
+void EXTI2_3_IRQHandler(void) { hal_exti_dispatch(HAL_EXTI_LINE_KEY); }
 
 void EXTI4_15_IRQHandler(void) {
     hal_exti_dispatch(HAL_EXTI_LINE_HALL);
