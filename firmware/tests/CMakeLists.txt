@@ -58,3 +58,11 @@ add_sgc_test(charge_flow test_charge_flow.c)
 target_sources(test_charge_flow PRIVATE
     ${CMAKE_SOURCE_DIR}/../src/app/aux_logic.c
 )
+
+# State machine transition tests (provides own mocks, no sgc_mock link)
+add_sgc_test(state_machine test_state_machine.c)
+target_sources(test_state_machine PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src/app/state_machine.c
+    ${CMAKE_SOURCE_DIR}/../src/app/aux_logic.c
+)
+target_link_libraries(test_state_machine PRIVATE)
