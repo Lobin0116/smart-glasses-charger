@@ -1,7 +1,15 @@
 #include "button.h"
 
+#include "cw2017.h"
 #include "hal_gpio.h"
 #include "hal_timer.h"
+#include "led_effect.h"
+
+extern led_effect_ctx_t g_led_ctx;
+
+static uint8_t btn_case_soc;
+
+void button_set_case_soc(uint8_t soc) { btn_case_soc = soc; }
 
 #define DEBOUNCE_MS 50U
 #define SHORT_PRESS_MS 2000U
@@ -49,10 +57,7 @@ void button_poll(void) {
         if (!hal_key_pressed()) {
             uint32_t held = hal_timer_elapsed(btn_press_ms);
             if (held < SHORT_PRESS_MS) {
-                /* Short press: trigger battery display via led_effect overlay.
-                 * The actual call is wired from main.c which has access to
-                 * the led_effect context. For now set a flag. */
-                btn_raw_pressed = true; /* reuse as "short press event" */
+                led_effect_show_battery(&g_led_ctx, btn_case_soc);
             }
             btn_state = BTN_IDLE;
         }

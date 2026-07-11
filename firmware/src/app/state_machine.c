@@ -1,9 +1,12 @@
 #include "state_machine.h"
 
+#include "aux_logic.h"
 #include "charge_flow.h"
 #include "hal_exti.h"
 #include "hal_gpio.h"
 #include "hal_timer.h"
+#include "led_effect.h"
+#include "power_mgmt.h"
 
 /* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
 #define SM_HANDSHAKE_5V_PULSE_MS 300U  /* 5V wake pulse length              */
@@ -65,7 +68,11 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     }
 
     if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
-        sm_enter_state(ctx, ST_FORCE_CHARGING);
+        if (ctx->case_soc > SM_LOW_SOC_PCT) {
+            sm_enter_state(ctx, ST_FORCE_CHARGING);
+        } else {
+            sm_enter_state(ctx, ST_IDLE);
+        }
     }
 }
 
@@ -175,7 +182,7 @@ void sm_tick(sm_ctx_t *ctx) {
 
     switch (ctx->state) {
     case ST_IDLE:
-        /* Parked. Exits are edge-driven (lid open via HALL); nothing to poll. */
+        pm_enter_deep_sleep();
         break;
     case ST_HANDSHAKING:
         sm_tick_handshaking(ctx, now);
@@ -204,17 +211,27 @@ void sm_tick(sm_ctx_t *ctx) {
 void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line) {
     switch (exti_line) {
     case HAL_EXTI_LINE_HALL:
-        /* The hall line fires on both edges; the live pad level is the source
-         * of truth for open vs. closed. An open out of IDLE starts a handshake;
-         * the POGO sequencing itself runs from sm_tick(). */
         ctx->lid_open = hal_hall_get();
-        if (ctx->lid_open && ctx->state == ST_IDLE) {
-            sm_enter_state(ctx, ST_HANDSHAKING);
+        if (ctx->lid_open) {
+            if (ctx->state == ST_IDLE) {
+                sm_enter_state(ctx, ST_HANDSHAKING);
+            }
+            led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+        } else {
+            if (ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING) {
+                if (ctx->glass_present) {
+                    sm_enter_state(ctx, ST_HANDSHAKING);
+                } else {
+                    led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+                }
+            } else if (ctx->state == ST_IDLE) {
+                led_effect_show_battery(&g_led_ctx, ctx->case_soc);
+            }
         }
         break;
+    case HAL_EXTI_LINE_KEY:
+        break;
     default:
-        /* Key and charge IRQs are owned by the LED and charging subsystems, not
-         * the run state machine. */
         break;
     }
 }

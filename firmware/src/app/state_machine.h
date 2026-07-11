@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "led_effect.h"
+
 /* Application run state machine. The charger case is a bare-metal super-loop,
  * so every state is a small non-blocking step driven from sm_tick(). External
  * edges (lid open, charge IRQs) reach the machine through sm_handle_event(); the
@@ -22,17 +24,20 @@ typedef enum {
 
 typedef struct {
     sm_state_t state;
-    uint32_t state_enter_ms; /* timestamp when entered current state */
-    uint32_t last_comms_ms;  /* last successful heartbeat            */
-    uint8_t retry_count;     /* handshake/charge retry counter       */
-    bool lid_open;           /* hall sensor state                    */
-    bool glass_present;      /* glasses detected via heartbeat       */
-    uint8_t glass_soc;       /* last known glasses SOC               */
-    uint8_t case_soc;        /* last known case SOC                  */
-    bool glass_charging;     /* glasses being charged                */
-    bool glass_full;         /* glasses reported full                */
-    bool ota_requested;      /* OTA flag from heartbeat              */
+    uint32_t state_enter_ms;
+    uint32_t last_comms_ms;
+    uint8_t retry_count;
+    bool lid_open;
+    bool glass_present;
+    uint8_t glass_soc;
+    uint8_t case_soc;
+    bool glass_charging;
+    bool glass_full;
+    bool ota_requested;
+    uint32_t last_soc_refresh_ms;
 } sm_ctx_t;
+
+extern led_effect_ctx_t g_led_ctx;
 
 /* Reset ctx to ST_IDLE and seed the timestamps. Run once before sm_tick(). */
 void sm_init(sm_ctx_t *ctx);
