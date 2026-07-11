@@ -26,7 +26,7 @@ set(CMSIS_INC
 set(SPL_INC ${CMAKE_SOURCE_DIR}/Drivers/SPL)
 
 file(GLOB SPL_SRC ${CMAKE_SOURCE_DIR}/Drivers/SPL/*.c)
-file(GLOB APP_SRC ${CMAKE_SOURCE_DIR}/src/*.c)
+file(GLOB_RECURSE APP_SRC ${CMAKE_SOURCE_DIR}/src/*.c)
 
 add_executable(${PROJECT_NAME}.elf
     ${CMAKE_SOURCE_DIR}/startup/startup_gd32e23x.S
@@ -39,6 +39,7 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
     ${CMSIS_INC}
     ${SPL_INC}
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/hal
 )
 
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
