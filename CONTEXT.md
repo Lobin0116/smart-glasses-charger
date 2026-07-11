@@ -175,42 +175,45 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 
 ## 开发进度
 
-实现方式: Claude Code (claude --dangerously-skip-permissions -p "..." --max-turns 30) 实现代码 → 子agent验证 → git commit。GD32 SPL 已解压至 /tmp/gd32_fwlib2/。
+实现方式: Claude Code + Hermes 手写 → 编译验证 → clang-format → git commit。Flash 30.9% (19924B/64KB), RAM 52.3% (4288B/8KB)。
 
 | Task | 内容 | 状态 | Commit |
 |------|------|------|--------|
 | 1 | 项目骨架 (SPL/CMSIS/CMake) | DONE | a91119f |
-| 2 | HAL GPIO 初始化 | NEXT | |
-| 3 | HAL USART0 (921600 半双工) | PENDING | |
-| 4 | HAL I2C0 (200kHz) | PENDING | |
-| 5 | HAL EXTI (霍尔/按键/中断) | PENDING | |
-| 6 | HAL Timer (1ms tick) | PENDING | |
-| 7 | HAL 电源切换 ET3328 | PENDING | |
-| 8 | Driver CW2017 电量计 | PENDING | |
-| 9 | Driver IP5353 充放电 | PENDING | |
-| 10 | Driver MT5706 无线充电 | PENDING | |
-| 11 | Driver LED | PENDING | |
-| 12 | Protocol at_types/at_crc | PENDING | |
-| 13 | Protocol at_frame | PENDING | |
-| 14 | Protocol at_opcode | PENDING | |
-| 15 | App 状态机核心 | PENDING | |
-| 16 | App 开盖流程 | PENDING | |
-| 17 | App 关盖流程 | PENDING | |
-| 18 | App OTA 流程 | PENDING | |
-| 19 | App LED 灯效 | PENDING | |
-| 20 | App 低功耗管理 | PENDING | |
-| 21 | App 按键处理 | PENDING | |
-| 22 | main.c 整合 | PENDING | |
-| 23 | 构建验证 | PENDING | |
-| 24 | App 眼镜入盒流程 | PENDING | |
-| 25 | App NTC温度保护 | PENDING | |
-| 26 | App 有线/无线充电仲裁 | PENDING | |
-| 27 | App 复充逻辑 | PENDING | |
-| 28 | App 开盖无眼镜分支 | PENDING | |
-| 29 | App LED并发优先级 | PENDING | |
-| 30 | App 关盖无眼镜分支 | PENDING | |
+| 2 | HAL GPIO 初始化 | DONE | 95b7e67 |
+| 3 | HAL USART0 (921600 半双工) | DONE | 0212d3c |
+| 4 | HAL I2C0 (200kHz) | DONE | c66cf7e |
+| 5 | HAL EXTI (霍尔/按键/中断) | DONE | faa2f1c |
+| 6 | HAL Timer (1ms tick) | DONE | 5c8c9b7 |
+| 7 | HAL 电源切换 ET3328 | DONE | 41dacd3 |
+| 8 | Driver CW2017 电量计 | DONE | 0e8eb9c |
+| 9 | Driver IP5353 充放电 | DONE | d21b4e5 |
+| 10 | Driver MT5706 无线充电 | DONE | a1cb320 |
+| 11 | Driver LED | DONE | a1cb320 |
+| 12 | Protocol at_types/at_crc | DONE | 55b184e |
+| 13 | Protocol at_frame | DONE | 55b184e |
+| 14 | Protocol at_opcode | DONE | 55b184e |
+| 15 | App 状态机核心 | DONE | 6fcd38d |
+| 16 | App 开盖流程 | DONE | 9359ef5 |
+| 17 | App 关盖流程 | DONE | 9359ef5 |
+| 18 | App OTA 流程 | DONE | daf3e2c |
+| 19 | App LED 灯效 | DONE | 9359ef5 |
+| 20 | App 低功耗管理 | DONE | de4249f |
+| 21 | App 按键处理 | DONE | 9359ef5 |
+| 22 | main.c 整合 | DONE | 89f93ae |
+| 23 | 构建验证 | DONE | 89f93ae |
+| 24 | App 眼镜入盒流程 | DONE | 9359ef5 |
+| 25 | App NTC温度保护 | DONE | f36b374 |
+| 26 | App 有线/无线充电仲裁 | DONE | f36b374 |
+| 27 | App 复充逻辑 | DONE | f36b374 |
+| 28 | App 开盖无眼镜分支 | DONE | 2ab35c7 |
+| 29 | App LED并发优先级 | DONE | 9359ef5 |
+| 30 | App 关盖无眼镜分支 | DONE | 2ab35c7 |
 | 31 | 5min空闲超时 | CANCELLED (BLE相关) | |
-| 32 | HAL 看门狗 IWDG | PENDING | |
+| 32 | HAL 看门狗 IWDG | DONE | 6fcd38d |
+
+集成修复: NTC温度保护/充电仲裁/复充/OTA调用/低电关机 — f36b374
+关盖事件/无眼镜显示/Deep-Sleep/SOC刷新/按键动作 — 2ab35c7
 
 ## 待确认项 (Pending)
 

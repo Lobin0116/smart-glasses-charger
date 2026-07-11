@@ -12,12 +12,17 @@ enable_testing()
 # Mock SPL layer - stubs out hardware register access
 add_library(sgc_mock STATIC
     ${CMAKE_SOURCE_DIR}/mock/mock_spl.c
+    ${CMAKE_SOURCE_DIR}/mock/mock_stubs.c
     ${CMAKE_SOURCE_DIR}/../src/hal/hal_gpio.c
+    ${CMAKE_SOURCE_DIR}/../src/app/charge_flow.c
 )
 target_include_directories(sgc_mock PUBLIC
     ${CMAKE_SOURCE_DIR}/mock
     ${CMAKE_SOURCE_DIR}/../src
     ${CMAKE_SOURCE_DIR}/../src/hal
+    ${CMAKE_SOURCE_DIR}/../src/protocol
+    ${CMAKE_SOURCE_DIR}/../src/app
+    ${CMAKE_SOURCE_DIR}/../src/drivers
 )
 
 # Test framework: we use a minimal assert-based approach (no external deps)
@@ -31,6 +36,8 @@ function(add_sgc_test name src_file)
         ${CMAKE_SOURCE_DIR}/../src
         ${CMAKE_SOURCE_DIR}/../src/hal
         ${CMAKE_SOURCE_DIR}/../src/protocol
+        ${CMAKE_SOURCE_DIR}/../src/app
+        ${CMAKE_SOURCE_DIR}/../src/drivers
         ${CMAKE_SOURCE_DIR}/common
     )
     add_test(NAME ${name} COMMAND test_${name})
@@ -44,4 +51,10 @@ add_sgc_test(protocol test_protocol.c)
 target_sources(test_protocol PRIVATE
     ${CMAKE_SOURCE_DIR}/../src/protocol/at_crc.c
     ${CMAKE_SOURCE_DIR}/../src/protocol/at_frame.c
+)
+
+# Charge flow + aux logic tests
+add_sgc_test(charge_flow test_charge_flow.c)
+target_sources(test_charge_flow PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src/app/aux_logic.c
 )
