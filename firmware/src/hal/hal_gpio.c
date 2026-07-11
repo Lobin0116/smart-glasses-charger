@@ -37,45 +37,39 @@ void hal_gpio_init(void) {
     rcu_periph_clock_enable(RCU_GPIOF);
 
     /* LEDs: push-pull output, 2MHz, initially low. */
-    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
-                  GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
                             GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
     gpio_bit_reset(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
 
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
-    gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_bit_reset(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
 
     /* Control outputs: push-pull, 2MHz, initially low. */
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
-                  GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                      GPIO_PIN_14 | GPIO_PIN_15);
+                  GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
+                      GPIO_PIN_15);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 |
-                                GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
-    gpio_bit_reset(GPIOB,
-                   GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                       GPIO_PIN_14 | GPIO_PIN_15);
+                            GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
+                                GPIO_PIN_15);
+    gpio_bit_reset(GPIOB, GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
+                              GPIO_PIN_15);
 
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
 
     /* Interrupt inputs with pull-up. */
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP,
-                  GPIO_PIN_8 | GPIO_PIN_11 | GPIO_PIN_12);
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_8 | GPIO_PIN_11 | GPIO_PIN_12);
 
     /* I2C0: PB6 SCL / PB7 SDA, AF1 open-drain with pull-up. */
     gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_10MHZ,
-                            GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_10MHZ, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_af_set(GPIOB, GPIO_AF_1, GPIO_PIN_6 | GPIO_PIN_7);
 
     /* USART0: PA9 TX / PA10 RX, AF1 push-pull. */
     gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_9 | GPIO_PIN_10);
-    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ,
-                            GPIO_PIN_9 | GPIO_PIN_10);
+    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_9 | GPIO_PIN_10);
     gpio_af_set(GPIOA, GPIO_AF_1, GPIO_PIN_9 | GPIO_PIN_10);
 }
 
@@ -102,119 +96,63 @@ void hal_gpio_toggle(hal_pin_t pin) {
     }
 }
 
-void hal_led_red_on(void) {
-    hal_gpio_set(HAL_PIN_LED_RED, true);
-}
+void hal_led_red_on(void) { hal_gpio_set(HAL_PIN_LED_RED, true); }
 
-void hal_led_red_off(void) {
-    hal_gpio_set(HAL_PIN_LED_RED, false);
-}
+void hal_led_red_off(void) { hal_gpio_set(HAL_PIN_LED_RED, false); }
 
-void hal_led_red_toggle(void) {
-    hal_gpio_toggle(HAL_PIN_LED_RED);
-}
+void hal_led_red_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_RED); }
 
-void hal_led_green_on(void) {
-    hal_gpio_set(HAL_PIN_LED_GREEN, true);
-}
+void hal_led_green_on(void) { hal_gpio_set(HAL_PIN_LED_GREEN, true); }
 
-void hal_led_green_off(void) {
-    hal_gpio_set(HAL_PIN_LED_GREEN, false);
-}
+void hal_led_green_off(void) { hal_gpio_set(HAL_PIN_LED_GREEN, false); }
 
-void hal_led_green_toggle(void) {
-    hal_gpio_toggle(HAL_PIN_LED_GREEN);
-}
+void hal_led_green_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_GREEN); }
 
-void hal_led_blue_on(void) {
-    hal_gpio_set(HAL_PIN_LED_BLUE, true);
-}
+void hal_led_blue_on(void) { hal_gpio_set(HAL_PIN_LED_BLUE, true); }
 
-void hal_led_blue_off(void) {
-    hal_gpio_set(HAL_PIN_LED_BLUE, false);
-}
+void hal_led_blue_off(void) { hal_gpio_set(HAL_PIN_LED_BLUE, false); }
 
-void hal_led_blue_toggle(void) {
-    hal_gpio_toggle(HAL_PIN_LED_BLUE);
-}
+void hal_led_blue_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_BLUE); }
 
-void hal_led_white_on(void) {
-    hal_gpio_set(HAL_PIN_LED_WHITE, true);
-}
+void hal_led_white_on(void) { hal_gpio_set(HAL_PIN_LED_WHITE, true); }
 
-void hal_led_white_off(void) {
-    hal_gpio_set(HAL_PIN_LED_WHITE, false);
-}
+void hal_led_white_off(void) { hal_gpio_set(HAL_PIN_LED_WHITE, false); }
 
-void hal_led_white_toggle(void) {
-    hal_gpio_toggle(HAL_PIN_LED_WHITE);
-}
+void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
 
-void hal_led_2812_on(void) {
-    hal_gpio_set(HAL_PIN_LED_2812, true);
-}
+void hal_led_2812_on(void) { hal_gpio_set(HAL_PIN_LED_2812, true); }
 
-void hal_led_2812_off(void) {
-    hal_gpio_set(HAL_PIN_LED_2812, false);
-}
+void hal_led_2812_off(void) { hal_gpio_set(HAL_PIN_LED_2812, false); }
 
-void hal_1v8_enable(void) {
-    hal_gpio_set(HAL_PIN_EN_1V8, true);
-}
+void hal_1v8_enable(void) { hal_gpio_set(HAL_PIN_EN_1V8, true); }
 
-void hal_1v8_disable(void) {
-    hal_gpio_set(HAL_PIN_EN_1V8, false);
-}
+void hal_1v8_disable(void) { hal_gpio_set(HAL_PIN_EN_1V8, false); }
 
-void hal_chip_en2_enable(void) {
-    hal_gpio_set(HAL_PIN_CHIP_EN2, true);
-}
+void hal_chip_en2_enable(void) { hal_gpio_set(HAL_PIN_CHIP_EN2, true); }
 
-void hal_chip_en2_disable(void) {
-    hal_gpio_set(HAL_PIN_CHIP_EN2, false);
-}
+void hal_chip_en2_disable(void) { hal_gpio_set(HAL_PIN_CHIP_EN2, false); }
 
-void hal_tr_switch_set(bool value) {
-    hal_gpio_set(HAL_PIN_TR_SWITCH, value);
-}
+void hal_tr_switch_set(bool value) { hal_gpio_set(HAL_PIN_TR_SWITCH, value); }
 
-void hal_pogo_in_set(bool value) {
-    hal_gpio_set(HAL_PIN_POGO_IN, value);
-}
+void hal_pogo_in_set(bool value) { hal_gpio_set(HAL_PIN_POGO_IN, value); }
 
-void hal_ship_control_set(bool value) {
-    hal_gpio_set(HAL_PIN_SHIP_CTRL, value);
-}
+void hal_ship_control_set(bool value) { hal_gpio_set(HAL_PIN_SHIP_CTRL, value); }
 
-void hal_rpd_enable(void) {
-    hal_gpio_set(HAL_PIN_RPD, true);
-}
+void hal_rpd_enable(void) { hal_gpio_set(HAL_PIN_RPD, true); }
 
-void hal_rpd_disable(void) {
-    hal_gpio_set(HAL_PIN_RPD, false);
-}
+void hal_rpd_disable(void) { hal_gpio_set(HAL_PIN_RPD, false); }
 
 bool hal_key_pressed(void) {
     /* KEY is pulled up and reads low while pressed. */
     return !hal_gpio_get(HAL_PIN_KEY);
 }
 
-bool hal_key_get(void) {
-    return hal_gpio_get(HAL_PIN_KEY);
-}
+bool hal_key_get(void) { return hal_gpio_get(HAL_PIN_KEY); }
 
-bool hal_hall_get(void) {
-    return hal_gpio_get(HAL_PIN_HALL);
-}
+bool hal_hall_get(void) { return hal_gpio_get(HAL_PIN_HALL); }
 
-bool hal_bat_int_get(void) {
-    return hal_gpio_get(HAL_PIN_BAT_INT);
-}
+bool hal_bat_int_get(void) { return hal_gpio_get(HAL_PIN_BAT_INT); }
 
-bool hal_charger_int_get(void) {
-    return hal_gpio_get(HAL_PIN_CHARGER_INT);
-}
+bool hal_charger_int_get(void) { return hal_gpio_get(HAL_PIN_CHARGER_INT); }
 
-bool hal_coil_int_get(void) {
-    return hal_gpio_get(HAL_PIN_COIL_INT);
-}
+bool hal_coil_int_get(void) { return hal_gpio_get(HAL_PIN_COIL_INT); }

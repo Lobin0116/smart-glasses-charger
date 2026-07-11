@@ -1,7 +1,7 @@
 ---
 BasedOnStyle: LLVM
 Language: Cpp
-Standard: c11
+Standard: c++11
 
 IndentWidth: 4
 TabWidth: 4
