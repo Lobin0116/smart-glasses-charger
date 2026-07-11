@@ -30,6 +30,7 @@ function(add_sgc_test name src_file)
     target_include_directories(test_${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/../src
         ${CMAKE_SOURCE_DIR}/../src/hal
+        ${CMAKE_SOURCE_DIR}/../src/protocol
         ${CMAKE_SOURCE_DIR}/common
     )
     add_test(NAME ${name} COMMAND test_${name})
@@ -37,3 +38,10 @@ endfunction()
 
 # GPIO HAL tests
 add_sgc_test(gpio_config test_gpio_config.c)
+
+# Protocol tests (no hardware dependency)
+add_sgc_test(protocol test_protocol.c)
+target_sources(test_protocol PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src/protocol/at_crc.c
+    ${CMAKE_SOURCE_DIR}/../src/protocol/at_frame.c
+)
