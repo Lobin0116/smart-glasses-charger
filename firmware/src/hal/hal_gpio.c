@@ -36,15 +36,15 @@ void hal_gpio_init(void) {
     rcu_periph_clock_enable(RCU_GPIOB);
     rcu_periph_clock_enable(RCU_GPIOF);
 
-    /* LEDs: push-pull output, 2MHz, initially low. */
+    /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on). */
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
                             GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
-    gpio_bit_reset(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_bit_set(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
 
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
-    gpio_bit_reset(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
 
     /* Control outputs: push-pull, 2MHz, initially low. */
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
@@ -96,33 +96,34 @@ void hal_gpio_toggle(hal_pin_t pin) {
     }
 }
 
-void hal_led_red_on(void) { hal_gpio_set(HAL_PIN_LED_RED, true); }
+/* LEDs are active-low: driving the pin low turns the LED on. */
+void hal_led_red_on(void) { hal_gpio_set(HAL_PIN_LED_RED, false); }
 
-void hal_led_red_off(void) { hal_gpio_set(HAL_PIN_LED_RED, false); }
+void hal_led_red_off(void) { hal_gpio_set(HAL_PIN_LED_RED, true); }
 
 void hal_led_red_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_RED); }
 
-void hal_led_green_on(void) { hal_gpio_set(HAL_PIN_LED_GREEN, true); }
+void hal_led_green_on(void) { hal_gpio_set(HAL_PIN_LED_GREEN, false); }
 
-void hal_led_green_off(void) { hal_gpio_set(HAL_PIN_LED_GREEN, false); }
+void hal_led_green_off(void) { hal_gpio_set(HAL_PIN_LED_GREEN, true); }
 
 void hal_led_green_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_GREEN); }
 
-void hal_led_blue_on(void) { hal_gpio_set(HAL_PIN_LED_BLUE, true); }
+void hal_led_blue_on(void) { hal_gpio_set(HAL_PIN_LED_BLUE, false); }
 
-void hal_led_blue_off(void) { hal_gpio_set(HAL_PIN_LED_BLUE, false); }
+void hal_led_blue_off(void) { hal_gpio_set(HAL_PIN_LED_BLUE, true); }
 
 void hal_led_blue_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_BLUE); }
 
-void hal_led_white_on(void) { hal_gpio_set(HAL_PIN_LED_WHITE, true); }
+void hal_led_white_on(void) { hal_gpio_set(HAL_PIN_LED_WHITE, false); }
 
-void hal_led_white_off(void) { hal_gpio_set(HAL_PIN_LED_WHITE, false); }
+void hal_led_white_off(void) { hal_gpio_set(HAL_PIN_LED_WHITE, true); }
 
 void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
 
-void hal_led_2812_on(void) { hal_gpio_set(HAL_PIN_LED_2812, true); }
+void hal_led_2812_on(void) { hal_gpio_set(HAL_PIN_LED_2812, false); }
 
-void hal_led_2812_off(void) { hal_gpio_set(HAL_PIN_LED_2812, false); }
+void hal_led_2812_off(void) { hal_gpio_set(HAL_PIN_LED_2812, true); }
 
 void hal_1v8_enable(void) { hal_gpio_set(HAL_PIN_EN_1V8, true); }
 

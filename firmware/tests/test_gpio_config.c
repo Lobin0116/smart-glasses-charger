@@ -5,9 +5,9 @@
  * and AF numbers by inspecting mock call tracking.
  */
 
-#include "test_assert.h"
-#include "mock_spl.h"
 #include "hal_gpio.h"
+#include "mock_spl.h"
+#include "test_assert.h"
 
 /*
  * Trick: the HAL source uses GPIOB, GPIOF etc. which are defined in mock_spl.h.
@@ -33,8 +33,7 @@ static void test_gpio_mode_calls(void) {
     hal_gpio_init();
 
     /* Should have configured GPIO mode for outputs, inputs, AF pins */
-    TEST_ASSERT(mock_gpio_mode_set_calls >= 6,
-                "Expected at least 6 gpio_mode_set calls");
+    TEST_ASSERT(mock_gpio_mode_set_calls >= 6, "Expected at least 6 gpio_mode_set calls");
     TEST_ASSERT(mock_gpio_output_options_set_calls >= 4,
                 "Expected at least 4 gpio_output_options_set calls");
 }
@@ -50,20 +49,21 @@ static void test_af_configured(void) {
     TEST_ASSERT_EQ(mock_af_af, GPIO_AF_1, "Last AF should be AF1");
 }
 
-static void test_leds_initially_low(void) {
+static void test_leds_initially_off(void) {
     mock_reset();
     hal_gpio_init();
 
-    /* LEDR=PB8, LEDG=PB9, LED_2812=PB2 on GPIOB(index 1) */
+    /* LEDs are active-low: initial state = pin HIGH = off.
+     * LEDR=PB8, LEDG=PB9, LED_2812=PB2 on GPIOB(index 1) */
     uint32_t pb = mock_gpio_output_reg[1];
-    TEST_ASSERT(!(pb & GPIO_PIN_8), "LEDR not initially low");
-    TEST_ASSERT(!(pb & GPIO_PIN_9), "LEDG not initially low");
-    TEST_ASSERT(!(pb & GPIO_PIN_2), "LED_2812 not initially low");
+    TEST_ASSERT(pb & GPIO_PIN_8, "LEDR should be high (off) at init");
+    TEST_ASSERT(pb & GPIO_PIN_9, "LEDG should be high (off) at init");
+    TEST_ASSERT(pb & GPIO_PIN_2, "LED_2812 should be high (off) at init");
 
     /* LEDB=PF6, LEDW=PF7 on GPIOF(index 2) */
     uint32_t pf = mock_gpio_output_reg[2];
-    TEST_ASSERT(!(pf & GPIO_PIN_6), "LEDB not initially low");
-    TEST_ASSERT(!(pf & GPIO_PIN_7), "LEDW not initially low");
+    TEST_ASSERT(pf & GPIO_PIN_6, "LEDB should be high (off) at init");
+    TEST_ASSERT(pf & GPIO_PIN_7, "LEDW should be high (off) at init");
 }
 
 static void test_control_outputs_initially_low(void) {
@@ -81,18 +81,16 @@ static void test_control_outputs_initially_low(void) {
     TEST_ASSERT(!(pb & GPIO_PIN_15), "RPD not initially low");
 }
 
-static void test_led_toggle(void) {
+static void test_led_active_low_toggle(void) {
     mock_reset();
     hal_gpio_init();
 
-    /* Toggle red LED on/off */
+    /* Active-low: on() drives pin low, off() drives pin high */
     hal_led_red_on();
-    TEST_ASSERT(mock_gpio_output_reg[1] & GPIO_PIN_8,
-                "LEDR should be high after on()");
+    TEST_ASSERT(!(mock_gpio_output_reg[1] & GPIO_PIN_8), "LEDR should be low when on");
 
     hal_led_red_off();
-    TEST_ASSERT(!(mock_gpio_output_reg[1] & GPIO_PIN_8),
-                "LEDR should be low after off()");
+    TEST_ASSERT(mock_gpio_output_reg[1] & GPIO_PIN_8, "LEDR should be high when off");
 }
 
 static void test_key_active_low(void) {
@@ -113,12 +111,10 @@ static void test_1v8_enable_disable(void) {
     hal_gpio_init();
 
     hal_1v8_enable();
-    TEST_ASSERT(mock_gpio_output_reg[1] & GPIO_PIN_10,
-                "1V8EN should be high after enable");
+    TEST_ASSERT(mock_gpio_output_reg[1] & GPIO_PIN_10, "1V8EN should be high after enable");
 
     hal_1v8_disable();
-    TEST_ASSERT(!(mock_gpio_output_reg[1] & GPIO_PIN_10),
-                "1V8EN should be low after disable");
+    TEST_ASSERT(!(mock_gpio_output_reg[1] & GPIO_PIN_10), "1V8EN should be low after disable");
 }
 
 int main(void) {
@@ -126,9 +122,9 @@ int main(void) {
     TEST_RUN(test_rcu_clocks_enabled);
     TEST_RUN(test_gpio_mode_calls);
     TEST_RUN(test_af_configured);
-    TEST_RUN(test_leds_initially_low);
+    TEST_RUN(test_leds_initially_off);
     TEST_RUN(test_control_outputs_initially_low);
-    TEST_RUN(test_led_toggle);
+    TEST_RUN(test_led_active_low_toggle);
     TEST_RUN(test_key_active_low);
     TEST_RUN(test_1v8_enable_disable);
     TEST_SUMMARY();

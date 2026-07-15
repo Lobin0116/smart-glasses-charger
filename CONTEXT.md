@@ -249,13 +249,12 @@ RAM: 4288B / 8KB = 52.3%
 
 ## 待确认项 (Pending)
 
-1. LED方案: WS2812(PB2) vs 4路GPIO LED(PB8/PB9/PF6/PF7)
-   - 需确认实际 PCBA 焊接
-   - 不阻塞交付，驱动接口已抽象，切换只改一个文件
+1. ~~LED方案: WS2812(PB2) vs 4路GPIO LED(PB8/PB9/PF6/PF7)~~
+   - 已确认: 使用 4路 GPIO LED, 低电平点亮 (active-low)
+   - WS2812(PB2) 不使用, hal 层 on/off 函数已按 active-low 实现
 
-2. A-SP1924RBGWW datasheet
-   - POGO 驱动区域标注芯片，可能为霍尔信号调理
-   - 不阻塞功能
+2. ~~A-SP1924RBGWW datasheet~~
+   - 已确认: 输出低电平点亮 LED
 
 ## 待硬件验证 (Hardware Verification Required)
 
