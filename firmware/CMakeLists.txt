@@ -1,15 +1,31 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(CMAKE_SYSTEM_NAME Generic)
+if(NOT DEFINED ARM_TOOLCHAIN_PREFIX)
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+        set(_DEFAULT_PREFIX
+            "C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/13.2 Rel1/bin/arm-none-eabi")
+    else()
+        set(_DEFAULT_PREFIX "arm-none-eabi")
+    endif()
+    set(ARM_TOOLCHAIN_PREFIX ${_DEFAULT_PREFIX} CACHE STRING "ARM GCC toolchain prefix")
+    unset(_DEFAULT_PREFIX)
+endif()
+
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    set(_EXE_SUFFIX ".exe")
+else()
+    set(_EXE_SUFFIX "")
+endif()
+
+set(CMAKE_SYSTEM_NAME      Generic)
 set(CMAKE_SYSTEM_PROCESSOR cortex-m23)
-
-set(CMAKE_C_COMPILER arm-none-eabi-gcc)
-set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
-set(CMAKE_OBJCOPY arm-none-eabi-objcopy)
-set(CMAKE_OBJDUMP arm-none-eabi-objdump)
-set(CMAKE_SIZE arm-none-eabi-size)
-
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+set(CMAKE_C_COMPILER   ${ARM_TOOLCHAIN_PREFIX}-gcc${_EXE_SUFFIX})
+set(CMAKE_ASM_COMPILER ${ARM_TOOLCHAIN_PREFIX}-gcc${_EXE_SUFFIX})
+set(CMAKE_OBJCOPY      ${ARM_TOOLCHAIN_PREFIX}-objcopy${_EXE_SUFFIX} CACHE FILEPATH "")
+set(CMAKE_OBJDUMP      ${ARM_TOOLCHAIN_PREFIX}-objdump${_EXE_SUFFIX} CACHE FILEPATH "")
+set(CMAKE_SIZE         ${ARM_TOOLCHAIN_PREFIX}-size${_EXE_SUFFIX}    CACHE FILEPATH "")
 
 project(smart_glasses_charger C ASM)
 
