@@ -5,7 +5,7 @@
 #include "charge_flow.h"
 #include "cw2017.h"
 #include "hal_exti.h"
-#include "hal_fwdgt.h"
+#include "hal_wwdgt.h"
 #include "hal_gpio.h"
 #include "hal_i2c.h"
 #include "hal_pwr.h"
@@ -19,22 +19,38 @@
 #include "state_machine.h"
 
 #define SOC_REFRESH_MS 5000U
+#define EXTI_DEBOUNCE_MS 20U
 
 led_effect_ctx_t g_led_ctx;
 
 static sm_ctx_t sm;
 static uint32_t last_soc_refresh;
+static volatile uint8_t exti_pending;
+static volatile uint32_t exti_last_trigger_ms[16];
 
 static void exti_callback(uint8_t line) {
-    switch (line) {
-    case HAL_EXTI_LINE_HALL:
-        sm_handle_event(&sm, line);
-        break;
-    case HAL_EXTI_LINE_KEY:
+    if (line < 16U) {
+        exti_pending |= (uint8_t)(1U << line);
+        exti_last_trigger_ms[line] = hal_timer_get_ms();
+    }
+}
+
+static void process_exti_events(void) {
+    if (exti_pending == 0U) {
+        return;
+    }
+    uint32_t now = hal_timer_get_ms();
+
+    if ((exti_pending & (1U << HAL_EXTI_LINE_HALL)) &&
+        (now - exti_last_trigger_ms[HAL_EXTI_LINE_HALL] >= EXTI_DEBOUNCE_MS)) {
+        exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_HALL);
+        sm_handle_event(&sm, HAL_EXTI_LINE_HALL);
+    }
+
+    if ((exti_pending & (1U << HAL_EXTI_LINE_KEY)) &&
+        (now - exti_last_trigger_ms[HAL_EXTI_LINE_KEY] >= EXTI_DEBOUNCE_MS)) {
+        exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_KEY);
         button_on_press();
-        break;
-    default:
-        break;
     }
 }
 
@@ -51,19 +67,20 @@ static void refresh_case_status(void) {
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }
 
-void SystemInit(void) {
+void board_init(void) {
     hal_gpio_init();
     hal_timer_init();
     hal_i2c_init();
     hal_usart_init();
     hal_exti_init();
     hal_exti_register_callback(exti_callback);
-    hal_fwdgt_init(2000);
+    hal_wwdgt_init(20);
     led_init();
     cw2017_init();
 }
 
 int main(void) {
+    board_init();
     sm_init(&sm);
     led_effect_init(&g_led_ctx);
     button_init();
@@ -72,9 +89,10 @@ int main(void) {
     refresh_case_status();
     last_soc_refresh = hal_timer_get_ms();
 
-    hal_fwdgt_feed();
+    hal_wwdgt_feed();
 
     while (1) {
+        process_exti_events();
         sm_tick(&sm);
         button_poll();
         led_effect_poll(&g_led_ctx);
@@ -85,6 +103,6 @@ int main(void) {
             last_soc_refresh = hal_timer_get_ms();
         }
 
-        hal_fwdgt_feed();
+        hal_wwdgt_feed();
     }
 }

@@ -6,7 +6,7 @@
 #include "at_frame.h"
 #include "at_opcode.h"
 #include "at_types.h"
-#include "hal_fwdgt.h"
+#include "hal_wwdgt.h"
 #include "hal_timer.h"
 #include "hal_usart.h"
 
@@ -93,7 +93,7 @@ void ota_init(void) { ota_active = false; }
 
 bool ota_request(sm_ctx_t *ctx) {
     for (uint8_t i = 0U; i < OTA_REQUEST_RETRIES; i++) {
-        hal_fwdgt_feed();
+        hal_wwdgt_feed();
         if (i > 0U) {
             hal_timer_delay_ms(OTA_REQUEST_GAP_MS);
         }
@@ -112,7 +112,7 @@ bool ota_prepare(uint32_t *fw_size) {
     req.src = AT_CASE_ROLE_CASE;
 
     for (uint8_t i = 0U; i < OTA_EXCHANGE_RETRIES; i++) {
-        hal_fwdgt_feed();
+        hal_wwdgt_feed();
         uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_PREPARE,
                                                 (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
         uint16_t rx_len =
@@ -154,7 +154,7 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
     req.size = block_size;
 
     for (uint8_t i = 0U; i < OTA_EXCHANGE_RETRIES; i++) {
-        hal_fwdgt_feed();
+        hal_wwdgt_feed();
         uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_READ,
                                                 (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
         uint16_t rx_len =
@@ -207,7 +207,7 @@ static void ota_finish(sm_ctx_t *ctx) {
 }
 
 int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
-    hal_fwdgt_feed();
+    hal_wwdgt_feed();
     if (progress_cb != NULL) {
         progress_cb(0U);
     }

@@ -1,6 +1,7 @@
 #include "hal_timer.h"
 
 #include "gd32e23x.h"
+#include "hal_wwdgt.h"
 
 volatile uint32_t hal_timer_millis;
 
@@ -26,4 +27,7 @@ bool hal_timer_expired(uint32_t start_ms, uint32_t timeout_ms) {
     return hal_timer_elapsed(start_ms) >= timeout_ms;
 }
 
-void SysTick_Handler(void) { hal_timer_millis++; }
+void SysTick_Handler(void) {
+    hal_timer_millis++;
+    hal_wwdgt_feed();
+}
