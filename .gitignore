@@ -10,3 +10,7 @@ build_verify/
 # IDE
 .vscode/
 .claude/
+
+# Python
+__pycache__/
+*.pyc
