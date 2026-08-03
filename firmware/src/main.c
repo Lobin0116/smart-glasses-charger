@@ -24,7 +24,7 @@
 
 led_effect_ctx_t g_led_ctx;
 
-static sm_ctx_t sm;
+sm_ctx_t sm;
 static uint32_t last_soc_refresh;
 static volatile uint8_t exti_pending;
 static volatile uint32_t exti_last_trigger_ms[16];
@@ -82,7 +82,6 @@ void board_init(void) {
 
 int main(void) {
     board_init();
-    update_mode_wait(2000);
     sm_init(&sm);
     led_effect_init(&g_led_ctx);
     button_init();
@@ -94,6 +93,7 @@ int main(void) {
     hal_wwdgt_feed();
 
     while (1) {
+        update_mode_poll();
         process_exti_events();
         sm_tick(&sm);
         button_poll();

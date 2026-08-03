@@ -175,18 +175,19 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 
 ## 开发进度
 
-状态: 软件功能开发完成，等待硬件验证
-最新提交: bfc1d2f (2026-07-11)
-Flash: 20408B / 64KB = 31.9%
-RAM: 4288B / 8KB = 52.3%
+状态: HIL 测试进行中（A 类协议测试 7/7 通过）
+最新提交: HIL test hooks + USART RX DMA 通道修复 (2026-08-03)
+Flash: 22056B / 64KB = 34.5%
+RAM: 4424B / 8KB = 54.0%
 源文件: 45 个 (.c + .h)
-测试文件: 8 个，4 个测试套件，99 个 assertion，全部通过
+单元测试: 8 个，4 个测试套件，99 个 assertion，全部通过
+HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 
 | Task | 内容 | 状态 | Commit |
 |------|------|------|--------|
 | 1 | 项目骨架 (SPL/CMSIS/CMake) | DONE | a91119f |
 | 2 | HAL GPIO 初始化 | DONE | 95b7e67 |
-| 3 | HAL USART0 (921600 半双工) | DONE | 0212d3c |
+| 3 | HAL USART0 (921600 半双工, DMA RX CH2 循环模式) | DONE | 0212d3c, 本次修复 |
 | 4 | HAL I2C0 (200kHz) + 总线恢复 | DONE | c66cf7e, bfc1d2f |
 | 5 | HAL EXTI (霍尔/按键/中断) | DONE | faa2f1c |
 | 6 | HAL Timer (1ms tick) | DONE | 5c8c9b7 |
@@ -222,6 +223,8 @@ RAM: 4288B / 8KB = 52.3%
 - 关盖事件/无眼镜显示/Deep-Sleep/SOC刷新/按键动作 — 2ab35c7
 - ISR竞争修复 (g_led_ctx deferred to main loop) — 6cc6574
 - Deep-Sleep EXTI pending清除 + I2C总线恢复 — bfc1d2f
+- USART RX DMA 通道修复 (CH1→CH2, 原 TX/RX 通道搞反) + 循环模式 ring buffer + update_mode peek (保留心跳响应字节不被命令解析消费) — 本次提交
+- HIL 测试钩子 (sm_inject_lid_event / update_mode_poll OPEN/CLOSE/KEY/RESET) — 本次提交
 
 测试套件:
 | Suite | Assertions | 覆盖范围 |
@@ -261,10 +264,32 @@ RAM: 4288B / 8KB = 52.3%
 以下功能已在软件层面实现和测试，但未在实际硬件上验证:
 
 1. I2C 实际通信 — CW2017/IP5353 寄存器读写
-2. UART 实际通信 — POGO 心跳帧收发
+2. ~~UART 实际通信 — POGO 心跳帧收发~~ 已验证 (HIL A 类 7/7 通过, 2026-08-03)
 3. 电源时序 — ET3328 5V/0V/1.8V 切换波形
 4. Deep-Sleep 功耗 — 目标 <50uA
 5. Standby 功耗 — 目标 <5uA
 6. LED 效果 — 呼吸/闪烁/长亮的实际视觉效果
 7. 充电全流程 — 开盖→握手→充电→充满→关机
 8. OTA 实际传输 — 与真实眼镜端通信
+
+## HIL 测试进展 (Hardware-in-the-Loop)
+
+测试环境: GD32E230 核心板 + USB-TTL (PA9/PA10) + PC pytest 模拟眼镜端
+测试矩阵: docs/HIL_TEST_MATRIX.md (9 类 ~70 用例)
+
+| 类别 | 内容 | 状态 |
+|------|------|------|
+| A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | PASS 7/7 |
+| B | 时序 (握手/心跳间隔/超时) | TODO |
+| C | 状态机转换 (IDLE/HANDSHAKING/CHARGING/...) | TODO |
+| E | 按键 (长按/短按/低电显示) | TODO |
+| F | 霍尔 (开盖/关盖/防抖) | TODO |
+| G | LED 灯效 | TODO (人眼观察) |
+| H | 充电仲裁 (有线/无线) | TODO |
+| I | OTA 升级 | BLOCKED (设计待修订: 眼镜申请更新盒子) |
+| J | 低功耗 (Deep-Sleep/Standby) | TODO |
+
+测试钩子 (仅 HIL 测试期间启用, 生产构建移除):
+- USART0 命令接口: OPEN/CLOSE/KEY/RESET/UPDATE\n
+- sm_inject_lid_event: 软件注入开盖事件, 绕过霍尔
+- ST_IDLE 不进 Deep-Sleep (保持唤醒便于测试)

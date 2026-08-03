@@ -122,3 +122,8 @@ def recv_request(ser, timeout: float = 5.0) -> bytes:
                         return bytes(buf[idx:idx + size])
                 idx = buf.find(magic, idx + 1)
     return None
+
+
+def send_command(ser, cmd: str) -> None:
+    ser.write(cmd.encode("ascii") + b"\n")
+    ser.flush()

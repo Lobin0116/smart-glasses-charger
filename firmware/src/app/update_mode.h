@@ -3,6 +3,6 @@
 
 #include <stdint.h>
 
-void update_mode_wait(uint32_t timeout_ms);
+void update_mode_poll(void);
 
 #endif

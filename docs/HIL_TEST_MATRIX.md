@@ -24,7 +24,8 @@ GD32E230 充电盒固件硬件在环测试方案。PC 模拟眼镜端，通过 U
 - 语言：Python 3
 - 依赖：`pyserial`（串口）、`pytest`（测试框架）
 - 入口：`pytest firmware/tests/hil/` 或 `python -m pytest`
-- 固件：**不改**，跑当前 main 分支编译出的 `smart_glasses_charger.hex`
+- 固件：启用 HIL 测试钩子（`update_mode_poll` 的 OPEN/CLOSE/KEY/RESET 命令 + `sm_inject_lid_event` + ST_IDLE 不进 Deep-Sleep），编译 `firmware/build/smart_glasses_charger.hex`
+- 环境变量：`SGC_SERIAL_PORT=COMx`（默认 COM3），`SGC_SERIAL_BAUDRATE=921600`
 
 ### 测试交互模型
 
@@ -43,7 +44,7 @@ PC 是"眼镜端"角色：
 
 ## 测试矩阵
 
-### 分类 A — AT 协议帧格式
+### 分类 A — AT 协议帧格式 ✅ PASS 7/7 (A01/A03/A04/A07/A11/A13/A15)
 
 | ID | 描述 | 来源 | 步骤 | 预期 | 分类 | P |
 |----|------|------|------|------|------|---|

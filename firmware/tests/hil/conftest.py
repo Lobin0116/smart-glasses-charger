@@ -30,10 +30,14 @@ def serial_port():
 
 @pytest.fixture(scope="module")
 def heartbeat_frame(serial_port):
-    input(
-        "\n[HIL] 请用磁铁靠近然后远离霍尔传感器（PB4），触发开盖事件，然后按回车..."
-    )
+    import time
     import sgc_at
-    frame = sgc_at.recv_request(serial_port, timeout=15.0)
-    pytest.skip("未收到心跳帧") if frame is None else None
+    serial_port.reset_input_buffer()
+    sgc_at.send_command(serial_port, "RESET")
+    time.sleep(0.5)
+    serial_port.reset_input_buffer()
+    sgc_at.send_command(serial_port, "OPEN")
+    frame = sgc_at.recv_request(serial_port, timeout=10.0)
+    if frame is None:
+        pytest.fail("RESET+OPEN 后 10 秒内未收到心跳帧")
     return frame
