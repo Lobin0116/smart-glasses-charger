@@ -17,6 +17,7 @@
 #include "mt5706.h"
 #include "power_mgmt.h"
 #include "state_machine.h"
+#include "update_mode.h"
 
 #define SOC_REFRESH_MS 5000U
 #define EXTI_DEBOUNCE_MS 20U
@@ -81,6 +82,7 @@ void board_init(void) {
 
 int main(void) {
     board_init();
+    update_mode_wait(2000);
     sm_init(&sm);
     led_effect_init(&g_led_ctx);
     button_init();
