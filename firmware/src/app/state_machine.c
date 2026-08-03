@@ -195,7 +195,7 @@ void sm_init(sm_ctx_t *ctx) {
     ctx->state_enter_ms = now;
     ctx->last_comms_ms = now;
     ctx->retry_count = 0U;
-    ctx->lid_open = false;
+    ctx->lid_open = hal_hall_get();
     ctx->glass_present = false;
     ctx->glass_soc = 0U;
     ctx->case_soc = 0U;
