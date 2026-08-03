@@ -289,7 +289,38 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | I | OTA 升级 | BLOCKED (设计待修订: 眼镜申请更新盒子) |
 | J | 低功耗 (Deep-Sleep/Standby) | TODO |
 
-测试钩子 (仅 HIL 测试期间启用, 生产构建移除):
-- USART0 命令接口: OPEN/CLOSE/KEY/RESET/UPDATE\n
-- sm_inject_lid_event: 软件注入开盖事件, 绕过霍尔
-- ST_IDLE 不进 Deep-Sleep (保持唤醒便于测试)
+## ⚠️ 临时测试修改（生产构建前必须还原）
+
+HIL 测试期间对固件做了以下临时修改。**生产构建前必须逐项还原**。每项标注修改位置、用途、还原方法。
+
+### 1. ST_IDLE 不进 Deep-Sleep
+
+- **位置**: `firmware/src/app/state_machine.c:237-238`
+- **修改**: `case ST_IDLE: break;`（删除了原来的 `pm_enter_deep_sleep();`）
+- **用途**: 测试期间保持固件唤醒，避免 Deep-Sleep 后 USART 不响应命令
+- **还原**: 在 `case ST_IDLE:` 与 `break;` 之间加回 `pm_enter_deep_sleep();`
+
+### 2. sm_inject_lid_event 测试钩子
+
+- **位置**: `firmware/src/app/state_machine.c:277-280` + `firmware/src/app/state_machine.h:53-56`
+- **修改**: 新增 `sm_inject_lid_event(bool lid_open)` 函数及声明
+- **用途**: 软件注入开盖/关盖事件，绕过霍尔传感器（无需磁铁）
+- **还原**: 删除函数定义 + 声明（`update_mode.c` 的 extern 引用随模块一并处理）
+
+### 3. update_mode 命令接口（整个模块）
+
+- **位置**: `firmware/src/app/update_mode.c` + `firmware/src/app/update_mode.h`
+- **修改**: `update_mode_wait` → `update_mode_poll`；新增 OPEN/CLOSE/KEY/RESET/UPDATE 命令解析；`main.c:28` 的 `sm` 由 `static` 改为非 static（供 RESET 命令 `extern sm_ctx_t sm` 访问）；`main.c:96` 主循环开头调用 `update_mode_poll()`
+- **用途**: 通过 USART0 文本命令驱动状态机（OPEN=开盖 / CLOSE=关盖 / KEY=按键 / RESET=清状态 / UPDATE=跳 SystemMemory bootloader）
+- **还原**:
+  - 选项 A（彻底移除）: 删除 `update_mode.c/h`；`main.c` 删除 `#include "update_mode.h"` + `update_mode_poll()` 调用；`sm` 改回 `static`
+  - 选项 B（保留但禁用）: 保留文件，仅 `main.c` 注释掉 `update_mode_poll()` 调用
+
+### 还原检查清单
+
+生产构建前逐项确认：
+- [ ] `state_machine.c:237-238` ST_IDLE 恢复 `pm_enter_deep_sleep();`
+- [ ] `state_machine.c/h` 删除 `sm_inject_lid_event`
+- [ ] `update_mode.c/h` 删除模块 或 `main.c` 移除 `update_mode_poll()` 调用
+- [ ] `main.c:28` `sm` 改回 `static sm_ctx_t sm;`
+- [ ] HIL 测试 hex 不混入生产发布
