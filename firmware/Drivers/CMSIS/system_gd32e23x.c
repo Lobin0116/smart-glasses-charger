@@ -268,8 +268,8 @@ static void system_clock_72m_hxtal(void) {
     RCU_CFG0 |= RCU_AHB_CKSYS_DIV4;
     /* APB2 = AHB */
     RCU_CFG0 |= RCU_APB2_CKAHB_DIV1;
-    /* APB1 = AHB */
-    RCU_CFG0 |= RCU_APB1_CKAHB_DIV1;
+    /* APB1 = AHB/2 (GD32E230 APB1 max 36MHz; AHB runs at 72M after PLL+RCU_MODIFY_UP_2) */
+    RCU_CFG0 |= RCU_APB1_CKAHB_DIV2;
 
     /* PLL = HXTAL * 9 = 72 MHz */
     RCU_CFG0 &= ~(RCU_CFG0_PLLSEL | RCU_CFG0_PLLMF | RCU_CFG0_PLLDV);
@@ -330,8 +330,8 @@ static void system_clock_72m_irc8m(void) {
     RCU_CFG0 |= RCU_AHB_CKSYS_DIV4;
     /* APB2 = AHB */
     RCU_CFG0 |= RCU_APB2_CKAHB_DIV1;
-    /* APB1 = AHB */
-    RCU_CFG0 |= RCU_APB1_CKAHB_DIV1;
+    /* APB1 = AHB/2 (GD32E230 APB1 max 36MHz; AHB runs at 72M after PLL+RCU_MODIFY_UP_2) */
+    RCU_CFG0 |= RCU_APB1_CKAHB_DIV2;
     /* PLL = (IRC8M/2) * 18 = 72 MHz */
     RCU_CFG0 &= ~(RCU_CFG0_PLLSEL | RCU_CFG0_PLLMF);
     RCU_CFG0 |= (RCU_PLLSRC_IRC8M_DIV2 | RCU_PLL_MUL18);
