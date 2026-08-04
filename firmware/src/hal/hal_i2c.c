@@ -111,10 +111,12 @@ static bool hal_i2c_master_addr(uint8_t addr7, uint32_t direction) {
     i2c_flag_clear(I2C0, I2C_FLAG_AERR);
     i2c_start_on_bus(I2C0);
     if (!hal_i2c_wait_flag(I2C_FLAG_SBSEND, SET)) {
+        i2c_stop_on_bus(I2C0);
         return false;
     }
-    i2c_master_addressing(I2C0, addr7, direction);
+    i2c_master_addressing(I2C0, (uint32_t)addr7 << 1U, direction);
     if (!hal_i2c_wait_or_err(I2C_FLAG_ADDSEND)) {
+        i2c_stop_on_bus(I2C0);
         return false;
     }
     i2c_flag_clear(I2C0, I2C_FLAG_ADDSEND);
