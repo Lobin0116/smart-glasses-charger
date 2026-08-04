@@ -1,5 +1,7 @@
 #include "gd32e23x.h"
 
+#include <stddef.h>
+
 #include "aux_logic.h"
 #include "button.h"
 #include "charge_flow.h"
@@ -86,6 +88,102 @@ void board_init(void) {
     cw2017_init();
 }
 
+#ifdef HIL_TEST
+/* Temporary charge-performance verification harness for wireless charging tests.
+ * Bypasses the state machine and continuously reads CW2017 + IP5353 registers,
+ * USART-printing every 500ms so charge voltage trend can be observed.
+ * Revert: delete this whole #ifdef HIL_TEST block and keep only the #else main. */
+static uint8_t hex_digit(uint8_t v) {
+    return (uint8_t)(v < 10U ? ('0' + v) : ('A' + v - 10U));
+}
+
+static uint16_t put_u16_dec(uint8_t *p, uint16_t v) {
+    uint8_t buf[5];
+    uint16_t i = 0U;
+    uint16_t n = 0U;
+    if (v == 0U) {
+        p[0] = '0';
+        return 1U;
+    }
+    while (v > 0U) {
+        buf[i++] = (uint8_t)('0' + (v % 10U));
+        v /= 10U;
+    }
+    while (i > 0U) {
+        p[n++] = buf[--i];
+    }
+    return n;
+}
+
+int main(void) {
+    board_init();
+    mt5706_enable();
+    for (volatile uint32_t d = 0U; d < 1000000U; d++) {
+        hal_wwdgt_feed();
+    }
+    static uint8_t msg[56];
+    while (1) {
+        uint8_t ver = 0U, soc = 0U, vh = 0U, vl = 0U;
+        uint8_t s0 = 0U, s2 = 0U, s5 = 0U;
+        int rv = hal_i2c_read_reg(0x63U, 0x00U, &ver, 1U);
+        int rs = hal_i2c_read_reg(0x63U, 0x04U, &soc, 1U);
+        int rh = hal_i2c_read_reg(0x63U, 0x02U, &vh, 1U);
+        int rl = hal_i2c_read_reg(0x63U, 0x03U, &vl, 1U);
+        int r0 = hal_i2c_read_reg(0x75U, 0x45U, &s0, 1U);
+        int r2 = hal_i2c_read_reg(0x75U, 0x50U, &s2, 1U);
+        int r5 = hal_i2c_read_reg(0x75U, 0x69U, &s5, 1U);
+        uint16_t raw = (uint16_t)(((uint16_t)(vh & 0x3FU) << 8) | vl);
+        uint16_t mv = (uint16_t)(((uint32_t)raw * 5U) / 16U);
+        uint16_t n = 0U;
+        msg[n++] = 'V'; msg[n++] = ':';
+        if (rv == 0) {
+            msg[n++] = hex_digit((uint8_t)(ver >> 4));
+            msg[n++] = hex_digit((uint8_t)(ver & 0xFU));
+        } else {
+            msg[n++] = '-';
+        }
+        msg[n++] = ' ';
+        msg[n++] = 'S'; msg[n++] = ':';
+        if (rs == 0) {
+            msg[n++] = hex_digit((uint8_t)(soc >> 4));
+            msg[n++] = hex_digit((uint8_t)(soc & 0xFU));
+        } else {
+            msg[n++] = '-';
+        }
+        msg[n++] = ' ';
+        msg[n++] = 'B'; msg[n++] = ':';
+        if (rh == 0 && rl == 0) {
+            n += put_u16_dec(msg + n, mv);
+            msg[n++] = 'm';
+            msg[n++] = 'V';
+        } else {
+            msg[n++] = '-';
+        }
+        msg[n++] = ' ';
+        msg[n++] = '4'; msg[n++] = '5'; msg[n++] = (r0 == 0) ? '+' : '-';
+        msg[n++] = hex_digit((uint8_t)(s0 >> 4));
+        msg[n++] = hex_digit((uint8_t)(s0 & 0xFU));
+        msg[n++] = ' ';
+        msg[n++] = '5'; msg[n++] = '0'; msg[n++] = (r2 == 0) ? '+' : '-';
+        msg[n++] = hex_digit((uint8_t)(s2 >> 4));
+        msg[n++] = hex_digit((uint8_t)(s2 & 0xFU));
+        msg[n++] = ' ';
+        msg[n++] = '6'; msg[n++] = '9'; msg[n++] = (r5 == 0) ? '+' : '-';
+        msg[n++] = hex_digit((uint8_t)(s5 >> 4));
+        msg[n++] = hex_digit((uint8_t)(s5 & 0xFU));
+        msg[n++] = ' ';
+        msg[n++] = 'M'; msg[n++] = ':';
+        msg[n++] = (hal_i2c_write(0x2BU, NULL, 0U) == 0) ? 'O' : 'N';
+        msg[n++] = '\n';
+        hal_usart_send(msg, n);
+        for (uint32_t s = 0U; s < 70U; s++) {
+            for (volatile uint32_t d = 0U; d < 100000U; d++) {
+            }
+            hal_wwdgt_feed();
+        }
+    }
+}
+#else
 int main(void) {
     board_init();
     sm_init(&sm);
@@ -99,9 +197,6 @@ int main(void) {
     hal_wwdgt_feed();
 
     while (1) {
-#ifdef HIL_TEST
-        update_mode_poll();
-#endif
         process_exti_events();
         sm_tick(&sm);
         button_poll();
@@ -116,3 +211,4 @@ int main(void) {
         hal_wwdgt_feed();
     }
 }
+#endif

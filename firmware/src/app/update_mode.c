@@ -2,9 +2,11 @@
 #include "update_mode.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "button.h"
 #include "gd32e23x.h"
+#include "hal_i2c.h"
 #include "hal_usart.h"
 #include "hal_wwdgt.h"
 #include "state_machine.h"
@@ -52,6 +54,13 @@ static void send_ack(const uint8_t *s, uint16_t len) {
     hal_usart_send(s, len);
 }
 
+static void emit_hex(uint8_t v, uint8_t *buf, uint8_t *idx) {
+    uint8_t hi = (uint8_t)((v >> 4) & 0x0FU);
+    uint8_t lo = (uint8_t)(v & 0x0FU);
+    buf[(*idx)++] = (uint8_t)(hi < 10U ? ('0' + hi) : ('A' + hi - 10U));
+    buf[(*idx)++] = (uint8_t)(lo < 10U ? ('0' + lo) : ('A' + lo - 10U));
+}
+
 void update_mode_poll(void) {
     static char buf[CMD_BUF_SIZE];
     static uint8_t idx = 0;
@@ -82,9 +91,64 @@ void update_mode_poll(void) {
                 sm.glass_present = false;
                 sm.glass_charging = false;
                 sm.glass_full = false;
+            } else if (idx == 6U && str_eq(buf, "STATUS", 6U)) {
+                uint8_t msg[80];
+                uint8_t n = 0U;
+                uint8_t ver = 0U, soc = 0U, cfg = 0U;
+                int ok_v = hal_i2c_read_reg(0x63U, 0x00U, &ver, 1U);
+                int ok_s = hal_i2c_read_reg(0x63U, 0x04U, &soc, 1U);
+                int ok_c = hal_i2c_read_reg(0x63U, 0x08U, &cfg, 1U);
+                msg[n++] = 'V'; msg[n++] = '=';
+                emit_hex(ver, msg, &n);
+                msg[n++] = (ok_v == 0) ? ' ' : '!';
+                msg[n++] = 'S'; msg[n++] = '=';
+                emit_hex(soc, msg, &n);
+                msg[n++] = (ok_s == 0) ? ' ' : '!';
+                msg[n++] = 'C'; msg[n++] = '=';
+                emit_hex(cfg, msg, &n);
+                msg[n++] = (ok_c == 0) ? ' ' : '!';
+                msg[n++] = ' ';
+                msg[n++] = 'F'; msg[n++] = '=';
+                emit_hex((uint8_t)(SystemCoreClock / 1000000U), msg, &n);
+                msg[n++] = ' ';
+                msg[n++] = 'H'; msg[n++] = '=';
+                emit_hex((uint8_t)(rcu_clock_freq_get(CK_AHB) / 1000000U), msg, &n);
+                msg[n++] = ' ';
+                msg[n++] = 'P'; msg[n++] = '=';
+                emit_hex((uint8_t)(rcu_clock_freq_get(CK_APB1) / 1000000U), msg, &n);
+                msg[n++] = '\n';
+                send_ack(msg, n);
+            } else if (idx == 4U && str_eq(buf, "SCAN", 4U)) {
+                uint8_t msg[160];
+                uint8_t n = 0U;
+                msg[n++] = 'I'; msg[n++] = '2'; msg[n++] = 'C'; msg[n++] = ':';
+                for (uint8_t addr = 1U; addr < 0x80U; addr++) {
+                    if (hal_i2c_write(addr, NULL, 0U) == 0) {
+                        emit_hex(addr, msg, &n);
+                        msg[n++] = ' ';
+                    }
+                    hal_wwdgt_feed();
+                }
+                msg[n++] = '\n';
+                send_ack(msg, n);
+            } else if (idx == 3U && str_eq(buf, "I2C", 3U)) {
+                static const uint8_t ok[] = "I2C START\n";
+                send_ack(ok, 9U);
+                while (1) {
+                    i2c_start_on_bus(I2C0);
+                    for (volatile uint32_t d = 0U; d < 200U; d++) {
+                    }
+                    i2c_master_addressing(I2C0, (uint32_t)0x63U << 1U, I2C_TRANSMITTER);
+                    for (volatile uint32_t d = 0U; d < 200U; d++) {
+                    }
+                    i2c_stop_on_bus(I2C0);
+                    for (volatile uint32_t d = 0U; d < 5000U; d++) {
+                    }
+                    hal_wwdgt_feed();
+                }
             }
             idx = 0U;
-        } else if (c >= 'A' && c <= 'Z' && idx < CMD_BUF_SIZE) {
+        } else if (((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) && idx < CMD_BUF_SIZE) {
             (void)hal_usart_rx_get(&c);
             buf[idx++] = (char)c;
         } else {
