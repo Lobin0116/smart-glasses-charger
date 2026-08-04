@@ -17,14 +17,20 @@
 #include "mt5706.h"
 #include "power_mgmt.h"
 #include "state_machine.h"
+#ifdef HIL_TEST
 #include "update_mode.h"
+#endif
 
 #define SOC_REFRESH_MS 5000U
 #define EXTI_DEBOUNCE_MS 20U
 
 led_effect_ctx_t g_led_ctx;
 
+#ifdef HIL_TEST
 sm_ctx_t sm;
+#else
+static sm_ctx_t sm;
+#endif
 static uint32_t last_soc_refresh;
 static volatile uint8_t exti_pending;
 static volatile uint32_t exti_last_trigger_ms[16];
@@ -93,7 +99,9 @@ int main(void) {
     hal_wwdgt_feed();
 
     while (1) {
+#ifdef HIL_TEST
         update_mode_poll();
+#endif
         process_exti_events();
         sm_tick(&sm);
         button_poll();

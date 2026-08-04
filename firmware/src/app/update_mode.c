@@ -1,3 +1,4 @@
+#ifdef HIL_TEST
 #include "update_mode.h"
 
 #include <stdbool.h>
@@ -92,3 +93,4 @@ void update_mode_poll(void) {
     }
     hal_wwdgt_feed();
 }
+#endif

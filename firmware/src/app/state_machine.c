@@ -235,7 +235,12 @@ void sm_tick(sm_ctx_t *ctx) {
 
     switch (ctx->state) {
     case ST_IDLE:
+#ifdef HIL_TEST
         break;
+#else
+        pm_enter_deep_sleep();
+        break;
+#endif
     case ST_HANDSHAKING:
         sm_tick_handshaking(ctx, now);
         break;
@@ -274,10 +279,12 @@ void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line) {
     }
 }
 
+#ifdef HIL_TEST
 void sm_inject_lid_event(bool lid_open) {
     sm_lid_open_val = lid_open;
     sm_lid_event_pending = true;
 }
+#endif
 
 const char *sm_state_name(sm_state_t state) {
     switch (state) {

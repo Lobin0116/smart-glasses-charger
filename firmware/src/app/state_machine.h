@@ -50,10 +50,12 @@ void sm_tick(sm_ctx_t *ctx);
  * work stays in sm_tick(). */
 void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line);
 
+#ifdef HIL_TEST
 /* Test hook: inject a lid event as if the Hall sensor fired with the given
  * level. Bypasses EXTI entirely so tests can drive the state machine over
  * UART without a physical magnet. */
 void sm_inject_lid_event(bool lid_open);
+#endif
 
 /* State name for debug logging. */
 const char *sm_state_name(sm_state_t state);

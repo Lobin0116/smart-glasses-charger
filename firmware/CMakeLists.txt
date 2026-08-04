@@ -29,6 +29,8 @@ set(CMAKE_SIZE         ${ARM_TOOLCHAIN_PREFIX}-size${_EXE_SUFFIX}    CACHE FILEP
 
 project(smart_glasses_charger C ASM)
 
+option(HIL_TEST "Enable HIL test hooks (USART OPEN/CLOSE/KEY/RESET commands, no Deep-Sleep in IDLE)" OFF)
+
 set(MCU_FLAGS "-mcpu=cortex-m23 -mthumb")
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections -gdwarf-2")
@@ -65,6 +67,10 @@ target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
     GD32E230
     USE_STDPERIPH_DRIVER
 )
+
+if(HIL_TEST)
+    target_compile_definitions(${PROJECT_NAME}.elf PRIVATE HIL_TEST)
+endif()
 
 add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${PROJECT_NAME}.elf> ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.hex

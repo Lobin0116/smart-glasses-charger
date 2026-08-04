@@ -289,38 +289,35 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | I | OTA 升级 | BLOCKED (设计待修订: 眼镜申请更新盒子) |
 | J | 低功耗 (Deep-Sleep/Standby) | TODO |
 
-## ⚠️ 临时测试修改（生产构建前必须还原）
+## ⚠️ 临时测试代码（HIL_TEST 编译开关隔离）
 
-HIL 测试期间对固件做了以下临时修改。**生产构建前必须逐项还原**。每项标注修改位置、用途、还原方法。
+为兼顾"成品代码完整性"和"HIL 测试自动化"，所有测试钩子用 `HIL_TEST` CMake option + `#ifdef HIL_TEST` 编译开关隔离。**一份源码，两种构建**，无需手动还原代码。
 
-### 1. ST_IDLE 不进 Deep-Sleep
+### 构建方式
 
-- **位置**: `firmware/src/app/state_machine.c:237-238`
-- **修改**: `case ST_IDLE: break;`（删除了原来的 `pm_enter_deep_sleep();`）
-- **用途**: 测试期间保持固件唤醒，避免 Deep-Sleep 后 USART 不响应命令
-- **还原**: 在 `case ST_IDLE:` 与 `break;` 之间加回 `pm_enter_deep_sleep();`
+| 构建 | 命令 | 产物 | 用途 |
+|------|------|------|------|
+| **生产**（默认） | `cmake -S firmware -B build` | `build/smart_glasses_charger.hex` (21260B) | 成品固件，Deep-Sleep 生效，无测试接口 |
+| **HIL 测试** | `cmake -DHIL_TEST=ON -S firmware -B build_hil` | `build_hil/smart_glasses_charger.hex` (22056B) | 启用测试钩子，PC 自动驱动状态机 |
 
-### 2. sm_inject_lid_event 测试钩子
+### 测试钩子清单（均由 `HIL_TEST` 宏控制）
 
-- **位置**: `firmware/src/app/state_machine.c:277-280` + `firmware/src/app/state_machine.h:53-56`
-- **修改**: 新增 `sm_inject_lid_event(bool lid_open)` 函数及声明
-- **用途**: 软件注入开盖/关盖事件，绕过霍尔传感器（无需磁铁）
-- **还原**: 删除函数定义 + 声明（`update_mode.c` 的 extern 引用随模块一并处理）
+| 钩子 | 位置 | HIL_TEST=ON 时 | HIL_TEST=OFF 时（生产） |
+|------|------|----------------|------------------------|
+| ST_IDLE 保持唤醒 | `state_machine.c` `case ST_IDLE:` | `break;`（不 sleep） | `pm_enter_deep_sleep(); break;` |
+| `sm_inject_lid_event` | `state_machine.c` + `.h` | 编译（供 OPEN/CLOSE 调用） | `#ifdef` 排除，不存在 |
+| `update_mode` 模块 | `update_mode.c`（整文件）+ `.h` | 编译，提供 OPEN/CLOSE/KEY/RESET/UPDATE 命令 | `#ifdef` 排除，整文件为空 |
+| `sm` 可见性 | `main.c` | `sm_ctx_t sm;`（非 static，供 update_mode extern） | `static sm_ctx_t sm;`（封装） |
+| 主循环轮询 | `main.c` `while(1)` 开头 | 调用 `update_mode_poll()` | 不调用 |
 
-### 3. update_mode 命令接口（整个模块）
+### 设计原则
 
-- **位置**: `firmware/src/app/update_mode.c` + `firmware/src/app/update_mode.h`
-- **修改**: `update_mode_wait` → `update_mode_poll`；新增 OPEN/CLOSE/KEY/RESET/UPDATE 命令解析；`main.c:28` 的 `sm` 由 `static` 改为非 static（供 RESET 命令 `extern sm_ctx_t sm` 访问）；`main.c:96` 主循环开头调用 `update_mode_poll()`
-- **用途**: 通过 USART0 文本命令驱动状态机（OPEN=开盖 / CLOSE=关盖 / KEY=按键 / RESET=清状态 / UPDATE=跳 SystemMemory bootloader）
-- **还原**:
-  - 选项 A（彻底移除）: 删除 `update_mode.c/h`；`main.c` 删除 `#include "update_mode.h"` + `update_mode_poll()` 调用；`sm` 改回 `static`
-  - 选项 B（保留但禁用）: 保留文件，仅 `main.c` 注释掉 `update_mode_poll()` 调用
+- **成品代码路径在 `#else` 分支清晰可见**：读代码即可看到生产行为（例如 `state_machine.c` 的 `case ST_IDLE:` 同时展示两种分支）
+- **生产构建不包含测试代码**：`--gc-sections` + `#ifdef` 双保险，update_mode 模块在生产 hex 中完全不存在
+- **无需手动还原**：切换构建配置即可，不会遗漏
+- **测试 hex 与生产 hex 体积不同**（差 ~800B），便于区分
 
-### 还原检查清单
+### 生产发布检查
 
-生产构建前逐项确认：
-- [ ] `state_machine.c:237-238` ST_IDLE 恢复 `pm_enter_deep_sleep();`
-- [ ] `state_machine.c/h` 删除 `sm_inject_lid_event`
-- [ ] `update_mode.c/h` 删除模块 或 `main.c` 移除 `update_mode_poll()` 调用
-- [ ] `main.c:28` `sm` 改回 `static sm_ctx_t sm;`
-- [ ] HIL 测试 hex 不混入生产发布
+- [ ] 发布 hex 来自 `build/`（HIL_TEST=OFF），不是 `build_hil/`
+- [ ] `arm-none-eabi-size build/smart_glasses_charger.elf` 应为 ~21260B text（生产大小）
