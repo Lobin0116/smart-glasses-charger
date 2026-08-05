@@ -5,6 +5,7 @@
 #include "aux_logic.h"
 #include "charge_flow.h"
 #include "cw2017.h"
+#include "fw_version.h"
 #include "hal_exti.h"
 #include "hal_gpio.h"
 #include "hal_pwr.h"
@@ -94,6 +95,11 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
 }
 
 static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
+    /* Version mismatch with what the glasses holds → request OTA.
+     * Skip when glasses hasn't reported a version (0) to avoid spurious trigger. */
+    if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
+        ctx->ota_requested = true;
+    }
     if (ctx->ota_requested) {
         sm_enter_state(ctx, ST_OTA);
         return;
@@ -122,6 +128,9 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
 }
 
 static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
+    if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
+        ctx->ota_requested = true;
+    }
     if (ctx->ota_requested) {
         sm_enter_state(ctx, ST_OTA);
         return;
@@ -202,6 +211,7 @@ void sm_init(sm_ctx_t *ctx) {
     ctx->glass_charging = false;
     ctx->glass_full = false;
     ctx->ota_requested = false;
+    ctx->reported_case_version = 0U;
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;

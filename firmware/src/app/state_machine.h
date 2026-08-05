@@ -34,6 +34,7 @@ typedef struct {
     bool glass_charging;
     bool glass_full;
     bool ota_requested;
+    uint8_t reported_case_version; /* mirrored by glasses via at_glass_data.case_version */
     uint32_t last_soc_refresh_ms;
 } sm_ctx_t;
 

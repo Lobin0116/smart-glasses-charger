@@ -83,6 +83,10 @@ void update_mode_poll(void) {
             } else if (idx == 3U && str_eq(buf, "KEY", 3U)) {
                 send_ack(ok_key, 7U);
                 button_on_press();
+            } else if (idx == 3U && str_eq(buf, "OTA", 3U)) {
+                static const uint8_t ok_ota[] = "OK_OTA\n";
+                send_ack(ok_ota, 7U);
+                sm.ota_requested = true;
             } else if (idx == 5U && str_eq(buf, "RESET", 5U)) {
                 static const uint8_t ok_reset[] = "OK_RESET\n";
                 send_ack(ok_reset, 9U);

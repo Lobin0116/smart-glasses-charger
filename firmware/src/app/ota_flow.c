@@ -6,9 +6,12 @@
 #include "at_frame.h"
 #include "at_opcode.h"
 #include "at_types.h"
-#include "hal_wwdgt.h"
+#include "gd32e23x.h"
+#include "hal_bootmeta.h"
+#include "hal_flash.h"
 #include "hal_timer.h"
 #include "hal_usart.h"
+#include "hal_wwdgt.h"
 
 /* Timing budget from CONTEXT.md "通信超时": the AT request/response cycle is
  * 100 ms, so each exchange below uses that as its deadline. */
@@ -37,6 +40,20 @@
 #define OTA_ERR_PREPARE (-2)
 #define OTA_ERR_READ (-3)
 #define OTA_ERR_RUNAWAY (-4)
+#define OTA_ERR_FLASH_ERASE (-5)
+#define OTA_ERR_FLASH_PROG (-6)
+#define OTA_ERR_VERIFY (-7)
+#define OTA_ERR_META (-8)
+
+/* Firmware verification hook. Protocol (AT_Communication_Protocol.pdf +
+ * dual_pin_timing) does not define a checksum field, so verification is
+ * reserved but unimplemented — see docs/OTA_UPGRADE_PLAN.md §6. Returns true
+ * unconditionally; fill in after the protocol is extended. */
+static bool ota_verify(uint32_t addr, uint32_t size) {
+    (void)addr;
+    (void)size;
+    return true;
+}
 
 /* Whole frames live in static buffers: ota_run() is synchronous and not
  * re-entrant, and keeping these off the stack matters on the 8 KB SRAM part. */
@@ -83,6 +100,7 @@ static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed) {
     ctx->glass_present = true;
     ctx->glass_soc = (uint8_t)(rsp->glass_soc & 0x7FU);
     ctx->glass_full = (rsp->glass_soc & 0x80U) != 0U;
+    ctx->reported_case_version = rsp->case_version;
     if (agreed != NULL) {
         *agreed = (rsp->glass_sta & 0x80U) != 0U;
     }
@@ -223,45 +241,79 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
         return OTA_ERR_PREPARE;
     }
 
-    static uint8_t block[OTA_BLOCK_SIZE];
-    uint32_t max_blocks = (fw_size / OTA_BLOCK_SIZE) + 2U;
-    if (max_blocks > OTA_MAX_BLOCKS) {
-        max_blocks = OTA_MAX_BLOCKS;
+    /* Erase Staging B pages: ceil(fw_size / 1KB), capped at Staging capacity.
+     * Bootloader will copy Staging → App on next reset, leaving the running
+     * App untouched until the new image is fully written. */
+    uint32_t staging_pages = BOOT_STAGING_SIZE / HAL_FLASH_PAGE_SIZE;
+    uint32_t total_pages = (fw_size + HAL_FLASH_PAGE_SIZE - 1U) / HAL_FLASH_PAGE_SIZE;
+    if (total_pages == 0U || total_pages > staging_pages) {
+        ota_finish(ctx);
+        return OTA_ERR_PREPARE;
     }
+    hal_flash_unlock();
+    for (uint32_t p = 0U; p < total_pages; p++) {
+        if (!hal_flash_page_erase(BOOT_STAGING_BASE + p * HAL_FLASH_PAGE_SIZE)) {
+            hal_flash_lock();
+            ota_finish(ctx);
+            return OTA_ERR_FLASH_ERASE;
+        }
+    }
+    hal_flash_lock();
 
+    /* Read every block and program it to Staging B. */
+    static uint8_t block[OTA_BLOCK_SIZE];
+    uint32_t offset = 0U;
     uint16_t index = 0U;
-    uint32_t received = 0U;
-    for (;;) {
-        if (index >= max_blocks) {
+    uint8_t type = AT_PACKET_TYPE_MID;
+    while (type != AT_PACKET_TYPE_END) {
+        if (index >= OTA_MAX_BLOCKS) {
             ota_finish(ctx);
             return OTA_ERR_RUNAWAY;
         }
-
         uint16_t dlen = 0U;
-        uint8_t type = AT_PACKET_TYPE_MID;
         if (!ota_read_block(index, OTA_BLOCK_SIZE, block, &dlen, &type)) {
             ota_finish(ctx);
             return OTA_ERR_READ;
         }
-
-        received += dlen;
+        if (dlen > 0U) {
+            /* Flash word-program needs 4-byte alignment; pad trailing bytes with 0xFF. */
+            uint32_t padded = ((uint32_t)dlen + 3U) & ~3U;
+            for (uint32_t i = dlen; i < padded; i++) {
+                block[i] = 0xFFU;
+            }
+            if (!hal_flash_write(BOOT_STAGING_BASE + offset, block, padded)) {
+                ota_finish(ctx);
+                return OTA_ERR_FLASH_PROG;
+            }
+            offset += dlen;
+        }
         if (progress_cb != NULL && fw_size > 0U) {
-            uint32_t pct = (received * 100U) / fw_size;
+            uint32_t pct = (offset * 100U) / fw_size;
             if (pct > 100U) {
                 pct = 100U;
             }
             progress_cb((uint8_t)pct);
         }
-
         index++;
-        if (type == AT_PACKET_TYPE_END) {
-            break;
-        }
+    }
+
+    if (!ota_verify(BOOT_STAGING_BASE, offset)) {
+        ota_finish(ctx);
+        return OTA_ERR_VERIFY;
+    }
+
+    /* Commit: mark staged so Bootloader copies Staging → App on next reset. */
+    if (!hal_bootmeta_set_staged(offset)) {
+        ota_finish(ctx);
+        return OTA_ERR_META;
     }
 
     if (progress_cb != NULL) {
         progress_cb(100U);
     }
     ota_finish(ctx);
-    return OTA_OK;
+
+    hal_wwdgt_feed();
+    NVIC_SystemReset();
+    return OTA_OK;  /* unreachable */
 }
