@@ -37,7 +37,7 @@ BLE 功能已移除，不实现任何蓝牙相关逻辑。
 - ET3328 (SPDT模拟开关): POGO pin 5V充电 / 1.8V UART 切换
 - BL1551B (U14): 半双工收发方向切换 (PB12/T/R_SWITCH)
 - AiPTB0102TA8: 3.3V↔1.8V UART电平转换
-- 物理层: 2-pin Pogo-Pin, UART 921600 8N1, 1.8V电平
+- 物理层: 2-pin Pogo-Pin, UART 115200 8N1, 1.8V电平 (TIM 规格 921600，调试期偏离)
 
 ### ET3328 真值表 (MCU控制映射)
 | 模式 | PB13(IN) | PB15(RPD) | PB10(1V8EN) | POGO状态 |
@@ -132,6 +132,31 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 - 正常休眠: Deep-Sleep，EXTI唤醒(霍尔/按键/CHAGER_INT/BAT_INT)，<50uA
 - 船运模式: Standby + PB14(SHIP_CTR)外部控制，<5uA
 
+## OTA 升级方案
+
+布局（64KB flash @ 0x08000000, page = 1KB）：
+- Bootloader: 0x08000000-0x08000FFF (4KB, page 0-3) — 永不擦，启动检查 + 搬运
+- App slot A: 0x08001000-0x08007BFF (27KB, page 4-30) — 运行区
+- Staging B: 0x08007C00-0x0800F7FF (31KB, page 31-61) — OTA 暂存区
+- Meta: 0x0800F800 + 0x0800FC00 (page 62/63) — boot selector 双 page 轮换 (magic + staged + fw_size + seq + crc32)
+
+流程：
+1. App 收固件（眼镜推送，协议 0x3003/0x3004）→ 写 Staging B → 设 meta.staged → reset
+2. BL 启动 → 读 meta → staged? → 擦 App pages + 复制 Staging→App + 清 staged → jump App
+3. App 新版本运行
+
+掉电安全：BL 永不擦自己，所有掉电场景都能恢复（Staging 完整时幂等搬运）。
+
+关键约束：
+- BL 跑 8MHz IRC（lite SystemInit 不配 PLL），搬运 ~3s
+- BL 不开 WWDGT（reset 默认 off），App 自己 init
+- BL jump App 前 `__enable_irq()`（App startup 不重新 enable）
+- 单 image（眼镜推 App.bin 链接 ORIGIN=0x08001000），眼镜端零协议改动
+
+构建产物：BL.hex + App.hex 合并为 combined.hex（`tools/merge_hex.py`），SWD 一次烧录。
+
+详见 `docs/OTA_UPGRADE_PLAN.md`。
+
 ## LED 灯效规则
 - 充电中(呼吸): 白(>40%) / 绿(15-40%) / 红(5-15%) / 红闪(1-5%)
 - 充满: 白色长亮
@@ -187,7 +212,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 |------|------|------|--------|
 | 1 | 项目骨架 (SPL/CMSIS/CMake) | DONE | a91119f |
 | 2 | HAL GPIO 初始化 | DONE | 95b7e67 |
-| 3 | HAL USART0 (921600 半双工, DMA RX CH2 循环模式) | DONE | 0212d3c, 本次修复 |
+| 3 | HAL USART0 (115200 半双工, DMA RX CH2 循环模式) | DONE | 0212d3c, 本次修复 |
 | 4 | HAL I2C0 (200kHz) + 总线恢复 | DONE | c66cf7e, bfc1d2f |
 | 5 | HAL EXTI (霍尔/按键/中断) | DONE | faa2f1c |
 | 6 | HAL Timer (1ms tick) | DONE | 5c8c9b7 |
@@ -280,13 +305,13 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | 类别 | 内容 | 状态 |
 |------|------|------|
 | A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | PASS 7/7 |
-| B | 时序 (握手/心跳间隔/超时) | TODO |
-| C | 状态机转换 (IDLE/HANDSHAKING/CHARGING/...) | TODO |
-| E | 按键 (长按/短按/低电显示) | TODO |
-| F | 霍尔 (开盖/关盖/防抖) | TODO |
+| B | 时序 (握手/心跳间隔/超时) | B03/B04 写了脚本 |
+| C | 状态机转换 (IDLE/HANDSHAKING/CHARGING/...) | C01/C02/C07 写了脚本 (C03/C12 skip：CW2017 SOC 异常) |
+| E | 按键 (KEY 命令链路) | E01 写了脚本 |
+| F | 霍尔 (双沿注入) | F03 写了脚本 |
 | G | LED 灯效 | TODO (人眼观察) |
 | H | 充电仲裁 (有线/无线) | TODO |
-| I | OTA 升级 | BLOCKED (设计待修订: 眼镜申请更新盒子) |
+| I | OTA 升级 | I01 触发链路 + I02 完整烧录框架 |
 | J | 低功耗 (Deep-Sleep/Standby) | TODO |
 
 ## ⚠️ 临时测试代码（HIL_TEST 编译开关隔离）
@@ -298,7 +323,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | 构建 | 命令 | 产物 | 用途 |
 |------|------|------|------|
 | **生产**（默认） | `cmake -S firmware -B build` | `build/smart_glasses_charger.hex` (21260B) | 成品固件，Deep-Sleep 生效，无测试接口 |
-| **HIL 测试** | `cmake -DHIL_TEST=ON -S firmware -B build_hil` | `build_hil/smart_glasses_charger.hex` (22056B) | 启用测试钩子，PC 自动驱动状态机 |
+| **HIL 测试** | `cmake -DHIL_TEST=ON -S firmware -B build_hil` | `build_hil/smart_glasses_charger.hex` (25724B) + `build_hil/bootloader.hex` (2560B) + `combined.hex` (BL+App 合并) | 启用测试钩子，PC 自动驱动状态机 |
 
 ### 测试钩子清单（均由 `HIL_TEST` 宏控制）
 
@@ -306,7 +331,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 |------|------|----------------|------------------------|
 | ST_IDLE 保持唤醒 | `state_machine.c` `case ST_IDLE:` | `break;`（不 sleep） | `pm_enter_deep_sleep(); break;` |
 | `sm_inject_lid_event` | `state_machine.c` + `.h` | 编译（供 OPEN/CLOSE 调用） | `#ifdef` 排除，不存在 |
-| `update_mode` 模块 | `update_mode.c`（整文件）+ `.h` | 编译，提供 OPEN/CLOSE/KEY/RESET/UPDATE 命令 | `#ifdef` 排除，整文件为空 |
+| `update_mode` 模块 | `update_mode.c`（整文件）+ `.h` | 编译，提供 OPEN/CLOSE/KEY/RESET/STATUS/SCAN/I2C/OTA 命令（UPDATE 已删，OTA 替代） | `#ifdef` 排除，整文件为空 |
 | `sm` 可见性 | `main.c` | `sm_ctx_t sm;`（非 static，供 update_mode extern） | `static sm_ctx_t sm;`（封装） |
 | 主循环轮询 | `main.c` `while(1)` 开头 | 调用 `update_mode_poll()` | 不调用 |
 

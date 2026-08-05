@@ -42,7 +42,7 @@
 ### hal_usart.c / hal_usart.h
 | 功能 | 需求来源 | 具体位置 |
 |------|---------|---------|
-| 波特率 921600 | TIM | 首页 "波特率：921600" |
+| 波特率 115200 (TIM 规格 921600，调试期偏离) | TIM | 首页 "波特率：921600" |
 | 8N1 (8数据位, 无校验, 1停止位) | TIM | 首页 "校验位：无/数据位：8/停止位：1" |
 | 半双工 T/R_SWITCH 方向切换 | TIM + PIN | PB12 "半双工收发切换控制脚" |
 | 通信电平 1.8V (硬件电平转换, 软件透明) | TIM | 首页 "通讯电平：1.8V" |
@@ -252,6 +252,60 @@
 | 5s 周期刷新 CW2017/IP5353 状态 | 工程实践 | case_soc/case_charging 更新 |
 | 充电仲裁 charge_arbitrate | 工程实践 | USB 优先 |
 | 看门狗喂狗 | 工程实践 | 每轮循环 |
+
+---
+
+## OTA 基础设施 (firmware/src/hal/ + firmware/bootloader/)
+
+### hal_flash.c / hal_flash.h
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| FMC unlock/lock 包装 | OTA_UPGRADE_PLAN §5 | SPL fmc_unlock/fmc_lock |
+| Page erase (1KB) | OTA_UPGRADE_PLAN §3 | GD32 FMC page size = 1KB |
+| Word program (4字节对齐) | OTA_UPGRADE_PLAN §5 | SPL fmc_word_program |
+| BL_NO_WWDGT 条件编译跳 feed | OTA_UPGRADE_PLAN §5 | BL 不开 WWDGT |
+| 关中断 + 每 1KB 喂狗 | 工程实践 | FMC 操作期间 flash 总线 stall |
+
+### hal_bootmeta.c / hal_bootmeta.h
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| Meta 双 page 轮换 (62/63) | OTA_UPGRADE_PLAN §4 | BOOT_META_ADDR_0/1 |
+| boot_meta_t: magic/staged/fw_size/seq/crc32 | OTA_UPGRADE_PLAN §4 | struct 定义 |
+| hal_bootmeta_read_staged (BL 用) | OTA_UPGRADE_PLAN §5 | BL 启动读 meta |
+| hal_bootmeta_set_staged (App ota_run 用) | OTA_UPGRADE_PLAN §5 | 写 Staging 后设 staged |
+| hal_bootmeta_clear_staged (BL 搬运后用) | OTA_UPGRADE_PLAN §5 | 搬运完成清 staged |
+| 软件 CRC32 table-less | OTA_UPGRADE_PLAN §4 | SystemInit 早期可调 |
+
+### bootloader/main.c + system_gd32e23x_lite.c
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| BL 启动读 meta → staged? → 搬运 | OTA_UPGRADE_PLAN §5 | main() |
+| Staging→App word-copy + 擦 App pages | OTA_UPGRADE_PLAN §5 | copy_staging_to_app() |
+| jump_to_app (VTOR + MSP + __enable_irq) | OTA_UPGRADE_PLAN §5 | App startup 不重新 enable IRQ |
+| Lite SystemInit (8MHz IRC, 只设 VTOR) | OTA_UPGRADE_PLAN §5 | 不配 PLL 省 size |
+| -nostartfiles + NO_LIBC_INIT_ARRAY | OTA_UPGRADE_PLAN §构建 | 跳 libc startup 省 ~2KB |
+
+### fw_version.h
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| CASE_FW_VERSION 版本号 | OTA_UPGRADE_PLAN §7 | 跟眼镜 case_version 对比触发 OTA |
+
+### tools/merge_hex.py
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| 合并 BL.hex + App.hex → combined.hex | OTA_UPGRADE_PLAN §构建 | Intel HEX record 拼接 |
+
+### OTA 相关改动（state_machine / ota_flow / update_mode / main）
+| 功能 | 需求来源 | 具体位置 |
+|------|---------|---------|
+| ota_run staging 改造（写 Staging + set_staged + reset） | TIM §盒子ota流程 + OTA_UPGRADE_PLAN §5 | ota_flow.c ota_run() |
+| ota_verify 预留空函数（协议未定义校验） | OTA_UPGRADE_PLAN §6 | ota_flow.c |
+| sm_ctx_t.reported_case_version | 协议 case_version 字段（推断） | state_machine.h |
+| 版本对比触发 ota_requested | 协议 case_version 字段（推断） | state_machine.c sm_tick_charging/maintaining |
+| OTA 命令（HIL 触发捷径，绕过版本对比） | HIL 钩子（非产品） | update_mode.c |
+| UPDATE 命令删除（OTA 替代升级） | OTA_UPGRADE_PLAN | update_mode.c |
+| break→drop 非命令字节 | HIL 机制修复 | update_mode.c update_mode_poll() |
+| main loop update_mode_poll 提前到 sm_tick 前 | HIL 机制（避免 sm_do_*_heartbeat 消费命令） | main.c |
 
 ---
 
