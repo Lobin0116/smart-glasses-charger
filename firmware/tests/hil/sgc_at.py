@@ -105,6 +105,19 @@ def pack_heartbeat_response(glass_soc: int, glass_sta: int, case_version: int = 
     return pack_response(OPCODE_CASE_HEART, AT_SUCCESS, payload)
 
 
+def pack_prepare_response(fw_size: int) -> bytes:
+    """Reply to 0x3003 PREPARE: tell the case the firmware image size in bytes."""
+    payload = bytes([ROLE_GLASS, ROLE_CASE]) + struct.pack("<I", fw_size & 0xFFFFFFFF)
+    return pack_response(OPCODE_CASE_PACKET_PREPARE, AT_SUCCESS, payload)
+
+
+def pack_read_response(index: int, data: bytes, packet_type: int = 0) -> bytes:
+    """Reply to 0x3004 READ: return one firmware block.
+    packet_type: 0=MID, 1=END (see at_packet_type_e)."""
+    payload = bytes([ROLE_GLASS, ROLE_CASE]) + struct.pack("<H", index & 0xFFFF) + bytes([packet_type & 0xFF]) + data
+    return pack_response(OPCODE_CASE_PACKET_READ, AT_SUCCESS, payload)
+
+
 def recv_request(ser, timeout: float = 5.0) -> bytes:
     """Read bytes from serial until a complete request frame is found."""
     magic = struct.pack(">I", MAGIC_REQ)
