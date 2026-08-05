@@ -118,30 +118,48 @@ def pack_read_response(index: int, data: bytes, packet_type: int = 0) -> bytes:
     return pack_response(OPCODE_CASE_PACKET_READ, AT_SUCCESS, payload)
 
 
+# Persistent RX buffer across recv_request calls. pyserial read(n) pulls bytes
+# out of the OS buffer; if a single read grabs multiple frames, the bytes past
+# the first parsed frame would be lost when recv_request returns (its local buf
+# drops on return). Keeping them here lets the next call resume from where the
+# last one stopped.
+_recv_buf = bytearray()
+
+_MAGIC_REQ_BYTES = struct.pack(">I", MAGIC_REQ)
+
+
 def recv_request(ser, timeout: float = 5.0) -> bytes:
     """Read bytes from serial until a complete, CRC-valid request frame is found.
     Skips over mis-aligned magic hits whose size field happens to look valid
     but whose CRC fails (avoids garbage frames bleeding into tests)."""
-    magic = struct.pack(">I", MAGIC_REQ)
     end_time = time.time() + timeout
-    buf = bytearray()
     while time.time() < end_time:
+        idx = _recv_buf.find(_MAGIC_REQ_BYTES)
+        while idx >= 0:
+            if len(_recv_buf) - idx >= 7:
+                size = struct.unpack_from(">H", _recv_buf, idx + 5)[0]
+                if size >= HEADER_SIZE and len(_recv_buf) - idx >= size:
+                    frame = bytes(_recv_buf[idx:idx + size])
+                    try:
+                        parse_frame(frame)
+                        del _recv_buf[:idx + size]
+                        return frame
+                    except ValueError:
+                        # CRC/magic mismatch — not a real frame, keep scanning
+                        del _recv_buf[:idx + 4]
+                        idx = _recv_buf.find(_MAGIC_REQ_BYTES)
+                        continue
+            del _recv_buf[:idx + 4]
+            idx = _recv_buf.find(_MAGIC_REQ_BYTES)
         chunk = ser.read(64)
         if chunk:
-            buf.extend(chunk)
-            idx = buf.find(magic)
-            while idx >= 0:
-                if len(buf) - idx >= 7:
-                    size = struct.unpack_from(">H", buf, idx + 5)[0]
-                    if size >= HEADER_SIZE and len(buf) - idx >= size:
-                        frame = bytes(buf[idx:idx + size])
-                        try:
-                            parse_frame(frame)
-                            return frame
-                        except ValueError:
-                            pass  # CRC/magic mismatch — not a real frame, keep scanning
-                idx = buf.find(magic, idx + 1)
+            _recv_buf.extend(chunk)
     return None
+
+
+def reset_recv_buffer() -> None:
+    """Drop any buffered RX bytes (e.g. between unrelated test phases)."""
+    _recv_buf.clear()
 
 
 def send_command(ser, cmd: str) -> None:

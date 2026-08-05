@@ -12,32 +12,54 @@ import time
 import sgc_at
 
 
-def _enter_charging(serial_port):
-    """RESET+OPEN → handshake response → CHARGING. Returns the initial heartbeat frame."""
+def _flush_rx(serial_port):
+    """Clear both the OS-level serial RX buffer and sgc_at's internal buffer
+    (which holds bytes already pulled out of the OS buffer but not yet parsed
+    into a frame)."""
     serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
+
+
+def _enter_charging(serial_port):
+    """RESET+OPEN → heartbeat → reply → wait for next heartbeat confirming
+    firmware left HANDSHAKING (interval > 500ms = MAINTAINING 1s or CHARGING 30s).
+    Keeps replying so retries see a response.
+
+    Returns only after firmware's last MAINTAINING heartbeat recv window has
+    closed. Otherwise the OTA command we write next lands in firmware's
+    sm_send_heartbeat recv buffer and gets swallowed as a (malformed) response."""
+    import time as _t
+    _flush_rx(serial_port)
     sgc_at.send_command(serial_port, "RESET")
     time.sleep(0.5)
-    serial_port.reset_input_buffer()
+    _flush_rx(serial_port)
     sgc_at.send_command(serial_port, "OPEN")
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
-    assert frame is not None, "OPEN 后 5s 内未收到心跳"
-    # 持续回响应，直到心跳间隔拉长（firmware 离开 HANDSHAKING retry 进 MAINTAINING/CHARGING）
-    import time as _t
+    assert frame is not None, "OPEN 后 5s 未收到心跳"
+
+    response = sgc_at.pack_heartbeat_response(
+        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+    )
     last = _t.time()
-    while _t.time() - last < 4.0:
-        serial_port.write(sgc_at.pack_heartbeat_response(
-            glass_soc=0x20, glass_sta=0x00, case_version=0x01
-        ))
+    deadline = _t.time() + 6.0
+    while _t.time() < deadline:
+        serial_port.write(response)
         nxt = sgc_at.recv_request(serial_port, timeout=2.0)
         if nxt is None:
-            break
+            continue
         interval_ms = (_t.time() - last) * 1000
         if interval_ms > 500:
-            # 心跳间隔 > 500ms = 已离开 HANDSHAKING (~200ms) 进 MAINTAINING (1s) 或 CHARGING (30s)
-            break
+            # Satisfy the REQ that just triggered exit: sm_send_heartbeat is
+            # still blocked in hal_usart_recv waiting for this reply. Without
+            # it, the next command we send (e.g. OTA) gets consumed as a
+            # malformed heartbeat response and update_mode_poll never sees it.
+            _flush_rx(serial_port)
+            serial_port.write(response)
+            _t.sleep(0.15)  # > hal_usart_recv's 100ms byte-gap timeout
+            _flush_rx(serial_port)
+            return frame
         last = _t.time()
-    serial_port.reset_input_buffer()
-    return frame
+    assert False, "6s 内 firmware 未离开 HANDSHAKING（握手没成功，OTA 命令来了也无效）"
 
 
 def _await_opcode(serial_port, opcode, timeout, body_check=None):
@@ -63,29 +85,83 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
     and ota_run bails out OTA_ERR_PREPARE (no real staging write).
     """
     _enter_charging(serial_port)
-    sgc_at.send_command(serial_port, "OTA")
-    time.sleep(0.3)
-    reply = serial_port.read(64)
-    assert b"OK_OTA" in reply, f"OTA 命令未回 OK_OTA，firmware 没收到命令。reply={reply!r}"
+    # Send OTA and read exactly the 7-byte ASCII ACK (OK_OTA\n). Retry up to
+    # 3 times because a single OTA can be swallowed if the firmware is mid-
+    # handshake when we send it: hal_usart_recv consumes the OTA bytes as a
+    # (malformed) heartbeat response. A retry lands once the firmware is back
+    # in its main loop.
+    serial_port.timeout = 0.5
+    raw = b""
+    for _ in range(3):
+        sgc_at.send_command(serial_port, "OTA")
+        raw = serial_port.read(7)
+        if raw == b"OK_OTA\n":
+            break
+        # Drain anything else firmware sent (e.g. heartbeat REQs) before retry.
+        _flush_rx(serial_port)
+        time.sleep(0.2)
+    # Use a short port timeout for the request loops below so ser.read(64)
+    # inside recv_request returns promptly when bytes are available instead of
+    # blocking up to 2s waiting to fill 64 bytes — that delay would miss the
+    # firmware's 100ms heartbeat recv window.
+    serial_port.timeout = 0.1
+    assert raw == b"OK_OTA\n", f"OTA 命令未回 OK_OTA\\n（重试3次），raw={raw!r}"
 
     # Wait for case heartbeat with case_sta bit7 (OTA request).
-    def has_ota_bit(f):
+    end = time.time() + 5.0
+    seen = []
+    ota_req = None
+    while time.time() < end:
+        f = sgc_at.recv_request(serial_port, timeout=1.0)
+        if f is None:
+            continue
+        seen.append(f)
         try:
             parsed = sgc_at.parse_frame(f)
         except ValueError:
-            return False
-        return (parsed["payload"][3] & 0x80) != 0
+            continue
+        opcode = struct.unpack_from(">H", f, 7)[0]
+        if opcode == sgc_at.OPCODE_CASE_HEART and (parsed["payload"][3] & 0x80):
+            ota_req = f
+            break
 
-    ota_req = _await_opcode(serial_port, sgc_at.OPCODE_CASE_HEART, timeout=5.0, body_check=has_ota_bit)
-    assert ota_req is not None, "OTA 命令后 5s 内未收到 case_sta bit7=1 心跳"
+    if ota_req is None:
+        debug = []
+        for fr in seen[-8:]:
+            try:
+                p = sgc_at.parse_frame(fr)
+                debug.append(f"op={p['opcode']:#06x} payload={p['payload'].hex()}")
+            except ValueError:
+                debug.append(f"CRC-fail {fr.hex()[:24]}")
+        assert False, f"OTA 后 5s 未收到 bit7 心跳，共 {len(seen)} 帧: {debug}"
 
     # Agree → case proceeds to ota_prepare.
     serial_port.write(sgc_at.pack_heartbeat_response(
         glass_soc=0x20, glass_sta=0x00, case_version=0x01, ota_agree=True
     ))
 
-    prepare = _await_opcode(serial_port, sgc_at.OPCODE_CASE_PACKET_PREPARE, timeout=3.0)
-    assert prepare is not None, "同意 OTA 后 3s 内未收到 PREPARE 请求"
+    end = time.time() + 3.0
+    prepare = None
+    seen = []
+    while time.time() < end:
+        f = sgc_at.recv_request(serial_port, timeout=1.0)
+        if f is None:
+            continue
+        seen.append(f)
+        got = struct.unpack_from(">H", f, 7)[0]
+        if got == sgc_at.OPCODE_CASE_PACKET_PREPARE:
+            prepare = f
+            break
+
+    if prepare is None:
+        debug = []
+        for fr in seen[-8:]:
+            try:
+                p = sgc_at.parse_frame(fr)
+                debug.append(f"op={p['opcode']:#06x} payload={p['payload'].hex()}")
+            except ValueError:
+                debug.append(f"CRC-fail {fr.hex()[:24]}")
+        assert False, f"同意 OTA 后 3s 未收到 PREPARE，共 {len(seen)} 帧: {debug}"
 
     # Reply size=0 so the case exits ota_run cleanly (OTA_ERR_PREPARE) instead
     # of staging a real image and resetting.
@@ -96,8 +172,9 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     """I02: push App.bin → case stages + resets → BL copies → new App runs.
 
     Skipped unless SGC_APP_BIN env var points to a built App.bin. The new image
-    must differ observably from the running one (e.g. CASE_FW_VERSION bumped, or
-    different USART beacon) so the test can confirm the swap.
+    must have CASE_FW_VERSION differing from the running one — verification
+    probes the post-reset firmware with a heartbeat carrying the new version
+    and checks the case no longer auto-triggers OTA (mismatch detection).
     """
     import os
     import pytest
@@ -105,46 +182,145 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     if not app_bin or not os.path.exists(app_bin):
         pytest.skip("set SGC_APP_BIN=<path> to a built App.bin to run this test")
 
+    new_version = int(os.environ.get("SGC_NEW_FW_VERSION", "0x02"), 0)
+
     with open(app_bin, "rb") as f:
         fw = f.read()
 
     _enter_charging(serial_port)
-    sgc_at.send_command(serial_port, "OTA")
 
-    def has_ota_bit(f):
-        parsed = sgc_at.parse_frame(f)
-        return (parsed["payload"][3] & 0x80) != 0
+    # OTA command + OK_OTA handshake (same robust pattern as I01).
+    serial_port.timeout = 0.5
+    raw = b""
+    for _ in range(3):
+        _flush_rx(serial_port)
+        sgc_at.send_command(serial_port, "OTA")
+        # Read until newline so misaligned bytes (e.g. start of a heartbeat
+        # REQ from auto-OTA retries) don't shift the OK_OTA line.
+        raw = serial_port.read_until(b"\n", size=32)
+        if raw == b"OK_OTA\n":
+            break
+        time.sleep(0.2)
+    serial_port.timeout = 0.1
+    assert raw == b"OK_OTA\n", f"OTA 命令未回 OK_OTA\\n（重试3次），raw={raw!r}"
 
-    ota_req = _await_opcode(serial_port, sgc_at.OPCODE_CASE_HEART, timeout=5.0, body_check=has_ota_bit)
-    assert ota_req is not None
+    # Wait for bit7 heartbeat, then agree.
+    end = time.time() + 5.0
+    ota_req = None
+    while time.time() < end:
+        f = sgc_at.recv_request(serial_port, timeout=1.0)
+        if f is None:
+            continue
+        try:
+            p = sgc_at.parse_frame(f)
+        except ValueError:
+            continue
+        if p["opcode"] == sgc_at.OPCODE_CASE_HEART and (p["payload"][3] & 0x80):
+            ota_req = f
+            break
+    assert ota_req is not None, "OTA 后 5s 未收到 bit7 心跳"
+
     serial_port.write(sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01, ota_agree=True
+        glass_soc=0x20, glass_sta=0x00, case_version=new_version, ota_agree=True
     ))
 
-    prepare = _await_opcode(serial_port, sgc_at.OPCODE_CASE_PACKET_PREPARE, timeout=3.0)
-    assert prepare is not None
+    # PREPARE → reply with image size.
+    end = time.time() + 3.0
+    prepare = None
+    while time.time() < end:
+        f = sgc_at.recv_request(serial_port, timeout=1.0)
+        if f is None:
+            continue
+        if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_PREPARE:
+            prepare = f
+            break
+    assert prepare is not None, "同意 OTA 后 3s 未收到 PREPARE"
     serial_port.write(sgc_at.pack_prepare_response(len(fw)))
 
     # Stream firmware in 240-byte blocks; last block carries type=END.
     BLOCK = 240
     index = 0
+    import sys as _sys
+    t_stream_start = time.time()
     while True:
         chunk = fw[index * BLOCK:(index + 1) * BLOCK]
-        if len(chunk) < BLOCK:
-            is_end = True
-        else:
-            is_end = False
-        read_req = _await_opcode(serial_port, sgc_at.OPCODE_CASE_PACKET_READ, timeout=3.0)
-        assert read_req is not None, f"未收到 READ index={index}"
-        serial_port.write(sgc_at.pack_read_response(index, chunk, packet_type=1 if is_end else 0))
+        is_end = len(chunk) < BLOCK
+        end = time.time() + 3.0
+        read_req = None
+        diag_seen = []
+        while time.time() < end:
+            f = sgc_at.recv_request(serial_port, timeout=1.0)
+            if f is None:
+                continue
+            try:
+                p = sgc_at.parse_frame(f)
+                diag_seen.append(f"op={p['opcode']:#06x} idx={p['payload'][2]:3d} payload={p['payload'][:8].hex()}")
+            except ValueError:
+                diag_seen.append(f"CRC-fail {f.hex()[:24]}")
+            if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_READ:
+                read_req = f
+                break
+        assert read_req is not None, (
+            f"未收到 READ index={index}（T+{(time.time()-t_stream_start)*1000:.0f}ms），"
+            f"等待期间看到: {diag_seen[-5:]}"
+        )
+        # Use the index from the REQ, not our counter — firmware may have retried
+        # with a different index than we expect.
+        p = sgc_at.parse_frame(read_req)
+        fw_index = p["payload"][2]
+        chunk = fw[fw_index * BLOCK:(fw_index + 1) * BLOCK]
+        is_end = len(chunk) < BLOCK
+        rsp = sgc_at.pack_read_response(fw_index, chunk, packet_type=1 if is_end else 0)
+        written = serial_port.write(rsp)
+        serial_port.flush()
+        _sys.stderr.write(
+            f"[ota] block fw_idx={fw_index} pc_idx={index} wrote={written}/{len(rsp)}B "
+            f"@ T+{(time.time()-t_stream_start)*1000:6.0f}ms\n"
+        )
         if is_end:
             break
         index += 1
 
     # Case sets staged + resets. BL copies Staging → App on next boot.
-    # Re-open serial after reset, then verify the new App runs (version beacon,
-    # STATUS reply, etc.). Specifics depend on how the new image differs.
     serial_port.close()
-    time.sleep(2.0)  # BL copy + App boot
+    time.sleep(2.5)  # BL copy + App boot
     serial_port.open()
-    # TODO: verify new App — e.g. STATUS reply differs, or version string.
+    serial_port.timeout = 0.1
+
+    # Verification: RESET+OPEN the new App, send heartbeats carrying the new
+    # case_version. If running firmware matches (upgrade succeeded), no version
+    # mismatch → no auto-OTA → no bit7 heartbeat. If still old version,
+    # mismatch → ST_OTA entry → bit7 heartbeat appears.
+    _flush_rx(serial_port)
+    sgc_at.send_command(serial_port, "RESET")
+    time.sleep(0.5)
+    _flush_rx(serial_port)
+    sgc_at.send_command(serial_port, "OPEN")
+    frame = sgc_at.recv_request(serial_port, timeout=5.0)
+    assert frame is not None, "新固件启动后 OPEN 未收到心跳"
+
+    response = sgc_at.pack_heartbeat_response(
+        glass_soc=0x20, glass_sta=0x00, case_version=new_version
+    )
+    end = time.time() + 8.0
+    saw_bit7 = False
+    last_hb = None
+    while time.time() < end:
+        serial_port.write(response)
+        f = sgc_at.recv_request(serial_port, timeout=1.0)
+        if f is None:
+            continue
+        try:
+            p = sgc_at.parse_frame(f)
+        except ValueError:
+            continue
+        if p["opcode"] == sgc_at.OPCODE_CASE_HEART:
+            last_hb = p["payload"]
+            if p["payload"][3] & 0x80:
+                saw_bit7 = True
+                break
+    assert last_hb is not None, "8s 内未收到任何心跳响应"
+    assert not saw_bit7, (
+        f"升级失败：新固件仍报告旧版本（PC 发 case_version={new_version:#x} "
+        f"触发自动 OTA）。最后一帧 payload={last_hb.hex()}"
+    )

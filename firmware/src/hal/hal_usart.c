@@ -8,7 +8,7 @@
 
 #define HAL_USART_BAUDRATE 115200U
 #define HAL_USART_RX_DMA_CH DMA_CH2
-#define HAL_USART_RX_BUF_SIZE 64U
+#define HAL_USART_RX_BUF_SIZE 256U
 
 static volatile uint8_t rx_buf[HAL_USART_RX_BUF_SIZE];
 static uint16_t rx_tail;
