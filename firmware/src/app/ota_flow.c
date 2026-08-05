@@ -15,7 +15,7 @@
 
 /* Timing budget from CONTEXT.md "通信超时": the AT request/response cycle is
  * 100 ms, so each exchange below uses that as its deadline. */
-#define OTA_TIMEOUT_MS 100U
+#define OTA_TIMEOUT_MS 500U
 
 /* Heartbeats sent while waiting for the glasses to agree, spaced one cycle apart
  * so the case keeps holding the glass in-box during the wait. */
@@ -258,7 +258,9 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
             return OTA_ERR_FLASH_ERASE;
         }
     }
-    hal_flash_lock();
+    /* Keep flash unlocked for the program loop — fmc_word_program needs the
+     * UNLOCK bit set or the program silently no-ops (returns FMC_READY without
+     * writing). Locked again after the last program completes. */
 
     /* Read every block and program it to Staging B. */
     static uint8_t block[OTA_BLOCK_SIZE];
@@ -267,11 +269,13 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
     uint8_t type = AT_PACKET_TYPE_MID;
     while (type != AT_PACKET_TYPE_END) {
         if (index >= OTA_MAX_BLOCKS) {
+            hal_flash_lock();
             ota_finish(ctx);
             return OTA_ERR_RUNAWAY;
         }
         uint16_t dlen = 0U;
         if (!ota_read_block(index, OTA_BLOCK_SIZE, block, &dlen, &type)) {
+            hal_flash_lock();
             ota_finish(ctx);
             return OTA_ERR_READ;
         }
@@ -282,6 +286,7 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
                 block[i] = 0xFFU;
             }
             if (!hal_flash_write(BOOT_STAGING_BASE + offset, block, padded)) {
+                hal_flash_lock();
                 ota_finish(ctx);
                 return OTA_ERR_FLASH_PROG;
             }
@@ -296,6 +301,7 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
         }
         index++;
     }
+    hal_flash_lock();
 
     if (!ota_verify(BOOT_STAGING_BASE, offset)) {
         ota_finish(ctx);
