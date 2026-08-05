@@ -13,33 +13,7 @@
 
 extern sm_ctx_t sm;
 
-#define SYSTEM_MEMORY_BASE 0x1FFFF000U
 #define CMD_BUF_SIZE 16U
-
-typedef void (*pfunc_t)(void);
-
-static void jump_to_system_bootloader(void) {
-    uint32_t addr = SYSTEM_MEMORY_BASE;
-
-    __disable_irq();
-
-    SysTick->CTRL = 0;
-    SysTick->LOAD = 0;
-    SysTick->VAL = 0;
-
-    usart_disable(USART0);
-
-    __DSB();
-    __ISB();
-
-    __set_MSP(*(volatile uint32_t *)addr);
-
-    pfunc_t reset = (pfunc_t)(*(volatile uint32_t *)(addr + 4));
-    reset();
-
-    while (1) {
-    }
-}
 
 static bool str_eq(const char *a, const char *b, uint8_t len) {
     for (uint8_t i = 0; i < len; i++) {
@@ -72,9 +46,7 @@ void update_mode_poll(void) {
             static const uint8_t ok_open[] = "OK_OPEN\n";
             static const uint8_t ok_close[] = "OK_CLOSE\n";
             static const uint8_t ok_key[] = "OK_KEY\n";
-            if (idx == 6U && str_eq(buf, "UPDATE", 6U)) {
-                jump_to_system_bootloader();
-            } else if (idx == 4U && str_eq(buf, "OPEN", 4U)) {
+            if (idx == 4U && str_eq(buf, "OPEN", 4U)) {
                 send_ack(ok_open, 8U);
                 sm_inject_lid_event(true);
             } else if (idx == 5U && str_eq(buf, "CLOSE", 5U)) {
@@ -156,7 +128,9 @@ void update_mode_poll(void) {
             (void)hal_usart_rx_get(&c);
             buf[idx++] = (char)c;
         } else {
-            break;
+            /* Drop non-command byte (e.g. residue from a previous response) so
+             * it doesn't block parsing of the next command. */
+            (void)hal_usart_rx_get(&c);
         }
     }
     hal_wwdgt_feed();

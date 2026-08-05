@@ -119,7 +119,9 @@ def pack_read_response(index: int, data: bytes, packet_type: int = 0) -> bytes:
 
 
 def recv_request(ser, timeout: float = 5.0) -> bytes:
-    """Read bytes from serial until a complete request frame is found."""
+    """Read bytes from serial until a complete, CRC-valid request frame is found.
+    Skips over mis-aligned magic hits whose size field happens to look valid
+    but whose CRC fails (avoids garbage frames bleeding into tests)."""
     magic = struct.pack(">I", MAGIC_REQ)
     end_time = time.time() + timeout
     buf = bytearray()
@@ -132,7 +134,12 @@ def recv_request(ser, timeout: float = 5.0) -> bytes:
                 if len(buf) - idx >= 7:
                     size = struct.unpack_from(">H", buf, idx + 5)[0]
                     if size >= HEADER_SIZE and len(buf) - idx >= size:
-                        return bytes(buf[idx:idx + size])
+                        frame = bytes(buf[idx:idx + size])
+                        try:
+                            parse_frame(frame)
+                            return frame
+                        except ValueError:
+                            pass  # CRC/magic mismatch — not a real frame, keep scanning
                 idx = buf.find(magic, idx + 1)
     return None
 

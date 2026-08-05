@@ -21,10 +21,22 @@ def _enter_charging(serial_port):
     sgc_at.send_command(serial_port, "OPEN")
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
     assert frame is not None, "OPEN 后 5s 内未收到心跳"
-    # 高电、未充满、case_version 匹配 → CHARGING
-    serial_port.write(sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01
-    ))
+    # 持续回响应，直到心跳间隔拉长（firmware 离开 HANDSHAKING retry 进 MAINTAINING/CHARGING）
+    import time as _t
+    last = _t.time()
+    while _t.time() - last < 4.0:
+        serial_port.write(sgc_at.pack_heartbeat_response(
+            glass_soc=0x20, glass_sta=0x00, case_version=0x01
+        ))
+        nxt = sgc_at.recv_request(serial_port, timeout=2.0)
+        if nxt is None:
+            break
+        interval_ms = (_t.time() - last) * 1000
+        if interval_ms > 500:
+            # 心跳间隔 > 500ms = 已离开 HANDSHAKING (~200ms) 进 MAINTAINING (1s) 或 CHARGING (30s)
+            break
+        last = _t.time()
+    serial_port.reset_input_buffer()
     return frame
 
 
@@ -52,10 +64,16 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
     """
     _enter_charging(serial_port)
     sgc_at.send_command(serial_port, "OTA")
+    time.sleep(0.3)
+    reply = serial_port.read(64)
+    assert b"OK_OTA" in reply, f"OTA 命令未回 OK_OTA，firmware 没收到命令。reply={reply!r}"
 
     # Wait for case heartbeat with case_sta bit7 (OTA request).
     def has_ota_bit(f):
-        parsed = sgc_at.parse_frame(f)
+        try:
+            parsed = sgc_at.parse_frame(f)
+        except ValueError:
+            return False
         return (parsed["payload"][3] & 0x80) != 0
 
     ota_req = _await_opcode(serial_port, sgc_at.OPCODE_CASE_HEART, timeout=5.0, body_check=has_ota_bit)

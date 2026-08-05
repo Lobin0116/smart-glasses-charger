@@ -102,13 +102,15 @@ int main(void) {
 
     while (1) {
         process_exti_events();
+#ifdef HIL_TEST
+        /* update_mode_poll runs before sm_tick so injected commands (OPEN/CLOSE/
+         * KEY/RESET/OTA) are read before sm_do_*_heartbeat consumes RX bytes
+         * looking for a heartbeat response. */
+        update_mode_poll();
+#endif
         sm_tick(&sm);
         button_poll();
         led_effect_poll(&g_led_ctx);
-
-#ifdef HIL_TEST
-        update_mode_poll();
-#endif
 
         if (hal_timer_expired(last_soc_refresh, SOC_REFRESH_MS)) {
             refresh_case_status();
