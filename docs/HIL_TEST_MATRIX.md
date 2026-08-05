@@ -13,7 +13,7 @@ GD32E230 充电盒固件硬件在环测试方案。PC 模拟眼镜端，通过 U
 | GND | GND |
 
 - 电平：3.3V（核心板原生，别接 5V TTL）
-- 串口参数：`921600 8N1 无校验`
+- 串口参数：`115200 8N1 无校验`
 - 绕过 BL1551B 开关（固件仍切 PB12 但不接开关元件），全双工
 - 霍尔触发：小磁铁靠近/远离 PB4 上的霍尔传感器
 - 按键触发：手动按 PB3 按键
@@ -25,7 +25,7 @@ GD32E230 充电盒固件硬件在环测试方案。PC 模拟眼镜端，通过 U
 - 依赖：`pyserial`（串口）、`pytest`（测试框架）
 - 入口：`pytest firmware/tests/hil/` 或 `python -m pytest`
 - 固件：启用 HIL 测试钩子（`update_mode_poll` 的 OPEN/CLOSE/KEY/RESET 命令 + `sm_inject_lid_event` + ST_IDLE 不进 Deep-Sleep），编译 `firmware/build/smart_glasses_charger.hex`
-- 环境变量：`SGC_SERIAL_PORT=COMx`（默认 COM3），`SGC_SERIAL_BAUDRATE=921600`
+- 环境变量：`SGC_SERIAL_PORT=COMx`（默认 COM3），`SGC_SERIAL_BAUDRATE=115200`
 
 ### 测试交互模型
 

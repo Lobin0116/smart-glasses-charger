@@ -6,7 +6,7 @@
 #include "hal_timer.h"
 #include "hal_usart.h"
 
-#define HAL_USART_BAUDRATE 921600U
+#define HAL_USART_BAUDRATE 115200U
 #define HAL_USART_RX_DMA_CH DMA_CH2
 #define HAL_USART_RX_BUF_SIZE 64U
 

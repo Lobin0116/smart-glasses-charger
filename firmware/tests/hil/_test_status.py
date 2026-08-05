@@ -5,7 +5,7 @@ import sys
 import time
 
 PORT = sys.argv[1] if len(sys.argv) > 1 else "COM23"
-ser = serial.Serial(PORT, 921600, timeout=2)
+ser = serial.Serial(PORT, 115200, timeout=2)
 ser.reset_input_buffer()
 ser.write(b"STATUS\n")
 ser.flush()

@@ -1,7 +1,7 @@
 """pytest fixtures for HIL testing.
 
 Configure serial port via env var SGC_SERIAL_PORT (default COM3) and
-SGC_SERIAL_BAUDRATE (default 921600). Tests require a USB-TTL adapter
+SGC_SERIAL_BAUDRATE (default 115200). Tests require a USB-TTL adapter
 wired to PA9 (RX) / PA10 (TX) / GND on the dev board.
 """
 import os
@@ -9,7 +9,7 @@ import serial
 import pytest
 
 DEFAULT_PORT = os.environ.get("SGC_SERIAL_PORT", "COM3")
-DEFAULT_BAUDRATE = int(os.environ.get("SGC_SERIAL_BAUDRATE", "921600"))
+DEFAULT_BAUDRATE = int(os.environ.get("SGC_SERIAL_BAUDRATE", "115200"))
 
 
 @pytest.fixture(scope="session")

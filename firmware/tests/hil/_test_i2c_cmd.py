@@ -4,7 +4,7 @@ import sys
 import time
 
 PORT = sys.argv[1] if len(sys.argv) > 1 else "COM23"
-ser = serial.Serial(PORT, 921600, timeout=1)
+ser = serial.Serial(PORT, 115200, timeout=1)
 ser.reset_input_buffer()
 print(f"Sending 'I2C\\n'...")
 ser.write(b"I2C\n")

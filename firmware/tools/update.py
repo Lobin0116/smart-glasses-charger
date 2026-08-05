@@ -13,7 +13,7 @@ Requires:
     pip install pyserial stm32loader
 
 Flow:
-    1. Open USART0 at 921600 baud, send "UPDATE\\n".
+    1. Open USART0 at 115200 baud, send "UPDATE\\n".
     2. App jumps to SystemMemory bootloader at 0x1FFFF000.
     3. stm32loader connects at 115200 (ISP auto-baud) and burns the bin.
     4. Power-cycle the board to run the new firmware.
@@ -26,9 +26,9 @@ import time
 PORT = sys.argv[1] if len(sys.argv) > 1 else "COM3"
 BIN = sys.argv[2] if len(sys.argv) > 2 else "firmware/build/smart_glasses_charger.bin"
 
-print(f"[1/2] Triggering SystemMemory bootloader on {PORT} (921600 baud)...")
+print(f"[1/2] Triggering SystemMemory bootloader on {PORT} (115200 baud)...")
 try:
-    ser = serial.Serial(PORT, 921600, timeout=2)
+    ser = serial.Serial(PORT, 115200, timeout=2)
 except serial.SerialException as e:
     print(f"ERROR: cannot open {PORT}: {e}")
     sys.exit(1)
