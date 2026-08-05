@@ -75,8 +75,11 @@ Zerobss:
   bcc FillZerobss
 /* Call SystemInit function */
     bl  SystemInit
-/* Call static constructors */
+/* Call static constructors. Skipped when NO_LIBC_INIT_ARRAY is defined
+ * (e.g. Bootloader) to avoid pulling libc stdio/malloc init (~2 KB). */
+#ifndef NO_LIBC_INIT_ARRAY
     bl __libc_init_array
+#endif
 /*Call the main function */
   bl  main
   bx lr

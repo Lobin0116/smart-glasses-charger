@@ -41,7 +41,9 @@
 #define __HXTAL (HXTAL_VALUE)   /* high speed crystal oscillator frequency */
 #define __SYS_OSC_CLK (__IRC8M) /* main oscillator frequency */
 
+#ifndef VECT_TAB_OFFSET
 #define VECT_TAB_OFFSET (uint32_t)0x00 /* vector table base offset */
+#endif
 
 /* select a system clock by uncommenting the following line */
 // #define __SYSTEM_CLOCK_8M_HXTAL              (__HXTAL)
@@ -162,6 +164,10 @@ __attribute__((weak)) void SystemInit(void) {
 #ifdef VECT_TAB_SRAM
     nvic_vector_table_set(NVIC_VECTTAB_RAM, VECT_TAB_OFFSET);
 #else
+    /* VECT_TAB_OFFSET is provided per target via compile definitions:
+     *   App target: 0x1000 (App lives at 0x08001000, BL occupies 0x08000000-0x08000FFF)
+     *   BL target:  0x00  (BL lives at 0x08000000)
+     * See docs/OTA_UPGRADE_PLAN.md for the layout. */
     nvic_vector_table_set(NVIC_VECTTAB_FLASH, VECT_TAB_OFFSET);
 #endif
 }

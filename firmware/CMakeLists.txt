@@ -29,6 +29,8 @@ set(CMAKE_SIZE         ${ARM_TOOLCHAIN_PREFIX}-size${_EXE_SUFFIX}    CACHE FILEP
 
 project(smart_glasses_charger C ASM)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 option(HIL_TEST "Enable HIL test hooks (USART OPEN/CLOSE/KEY/RESET commands, no Deep-Sleep in IDLE)" OFF)
 
 set(MCU_FLAGS "-mcpu=cortex-m23 -mthumb")
@@ -66,6 +68,7 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
     GD32E230
     USE_STDPERIPH_DRIVER
+    VECT_TAB_OFFSET=0x1000U
 )
 
 if(HIL_TEST)
@@ -76,4 +79,18 @@ add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${PROJECT_NAME}.elf> ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${PROJECT_NAME}.elf> ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.bin
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${PROJECT_NAME}.elf>
+)
+
+# Bootloader sub-project (4 KB at 0x08000000). Shares source with App.
+add_subdirectory(bootloader)
+
+# Merge Bootloader.hex + App.hex into a single combined.hex for one-shot flashing.
+add_custom_target(combined_hex ALL
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/merge_hex.py
+            ${CMAKE_BINARY_DIR}/bootloader.hex
+            ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.hex
+            ${CMAKE_BINARY_DIR}/combined.hex
+    DEPENDS bootloader.elf ${PROJECT_NAME}.elf
+    COMMENT "Merging bootloader.hex + ${PROJECT_NAME}.hex -> combined.hex"
+    VERBATIM
 )
