@@ -58,3 +58,53 @@ def test_a15_send_response_accepted(serial_port, heartbeat_frame):
     serial_port.write(response)
     next_frame = sgc_at.recv_request(serial_port, timeout=3.0)
     assert next_frame is not None, "发合法响应后应在 ~30s 内（开盖充电周期）收到下一个心跳，但超时"
+
+
+def test_a05_crc_range(heartbeat_frame):
+    """A05: CRC 覆盖范围 = magic(4) + CRC byte 之后(5+)，不含 byte 4 自身."""
+    original_crc = heartbeat_frame[4]
+
+    # 重算 CRC 必须等于帧里的存的 CRC 字节。
+    recomputed = sgc_at.frame_crc(heartbeat_frame)
+    assert recomputed == original_crc, (
+        f"recomputed CRC {recomputed:#04x} != frame[4] {original_crc:#04x}"
+    )
+
+    # Flip 一个 payload bit，CRC 必须变（证明 payload 在覆盖范围内）。
+    flipped = bytearray(heartbeat_frame)
+    flipped[10] ^= 0x01  # payload 第一字节 LSB
+    flipped_crc = sgc_at.frame_crc(bytes(flipped))
+    assert flipped_crc != original_crc, (
+        f"flipping payload bit did not change CRC "
+        f"(orig={original_crc:#04x}, flipped={flipped_crc:#04x})"
+    )
+
+    # 改 byte 4 自身 CRC 应不变（byte 4 不在 CRC 输入里）。
+    byte4_modified = bytearray(heartbeat_frame)
+    byte4_modified[4] ^= 0xFF
+    byte4_crc = sgc_at.frame_crc(bytes(byte4_modified))
+    assert byte4_crc == original_crc, (
+        f"changing byte 4 altered CRC ({byte4_crc:#04x} != {original_crc:#04x}) — "
+        f"byte 4 should not be part of CRC input"
+    )
+
+
+def test_a14_response_payload_structure():
+    """A14: 心跳响应 payload = [ROLE_GLASS, ROLE_CASE, glass_soc, glass_sta, case_version]."""
+    response = sgc_at.pack_heartbeat_response(
+        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+    )
+    # Header 10 字节 (MAGIC 4 + CRC 1 + SIZE 2 + OPCODE 2 + STATUS 1)；
+    # payload 从 offset 10 开始，长度 5。
+    assert len(response) == 15, f"response len={len(response)}, expected 15 (header 10 + payload 5)"
+    payload = response[10:15]
+    expected = bytes([
+        sgc_at.ROLE_GLASS,  # des=1
+        sgc_at.ROLE_CASE,   # src=0
+        0x20,               # glass_soc
+        0x00,               # glass_sta
+        0x01,               # case_version
+    ])
+    assert payload == expected, (
+        f"payload={payload.hex()}, expected={expected.hex()}"
+    )
