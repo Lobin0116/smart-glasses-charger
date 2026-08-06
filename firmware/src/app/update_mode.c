@@ -75,6 +75,10 @@ void update_mode_poll(void) {
                 sm.glass_present = false;
                 sm.glass_charging = false;
                 sm.glass_full = false;
+                sm.ota_requested = false;
+                sm.reported_case_version = 0U;
+                sm.lid_open = false;
+                sm_inject_lid_event(false);  /* clear any pending lid event */
             } else if (idx == 6U && str_eq(buf, "STATUS", 6U)) {
                 uint8_t msg[80];
                 uint8_t n = 0U;

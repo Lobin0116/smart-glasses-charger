@@ -41,7 +41,11 @@ def test_b03_handshake_retry_interval(serial_port):
     B04 (recv timeout 100ms) 通过此间隔的 recv 分量间接验证。
     """
     _reset_open(serial_port)
+    # Use a short port timeout so ser.read(64) returns promptly per REQ
+    # instead of buffering multiple REQs (which would make interval ≈ 0ms).
+    serial_port.timeout = 0.02
     timestamps = _collect_heartbeat_timestamps(serial_port, count=3, timeout=5.0)
+    serial_port.timeout = 2.0
 
     assert len(timestamps) >= 3, f"5s 内只收到 {len(timestamps)} 个心跳，期望 ≥3"
 

@@ -58,15 +58,18 @@ def test_c02_handshake_success_stops_retry(serial_port):
     case_soc=254%>15% 走 CHARGING（30s 心跳），2s 内收到帧 = 握手失败还在 retry。
     """
     _reset_open(serial_port)
+    serial_port.timeout = 0.02
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
     assert frame is not None, "未收到初始心跳"
 
     _send_normal_response(serial_port, glass_soc=0x20)
 
     serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
     start = time.time()
     next_frame = sgc_at.recv_request(serial_port, timeout=2.0)
     elapsed = time.time() - start
+    serial_port.timeout = 2.0
 
     assert next_frame is None or elapsed > 0.8, (
         f"响应后 {elapsed:.2f}s 就收到新帧，说明握手未成功（还在 200ms retry）。"
@@ -96,6 +99,7 @@ def test_c07_close_full_triggers_shutdown(serial_port):
     sgc_at.send_command(serial_port, "CLOSE")
 
     # 持续回响应（重新握手需要），同时等 0x3002
+    serial_port.timeout = 0.05
     shutdown_frame = None
     deadline = time.time() + 15.0
     while time.time() < deadline:
