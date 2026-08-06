@@ -13,6 +13,14 @@
 
 extern sm_ctx_t sm;
 
+/* OTA debug counters, defined in ota_flow.c. Exposed via STATUS as
+ * "ODiXXXXlXXXXfXXXXrXX" (index, rx_len, parse_fails, fail_reason). */
+extern volatile uint16_t ota_dbg_last_rx_len;
+extern volatile uint16_t ota_dbg_last_index;
+extern volatile uint16_t ota_dbg_parse_fails;
+extern volatile uint8_t  ota_dbg_last_fail_reason;
+extern volatile uint16_t ota_dbg_last_success_rx_len;
+
 #define CMD_BUF_SIZE 16U
 
 static bool str_eq(const char *a, const char *b, uint8_t len) {
@@ -92,6 +100,17 @@ void update_mode_poll(void) {
                 msg[n++] = ' ';
                 msg[n++] = 'P'; msg[n++] = '=';
                 emit_hex((uint8_t)(rcu_clock_freq_get(CK_APB1) / 1000000U), msg, &n);
+                msg[n++] = ' ';
+                msg[n++] = 'O'; msg[n++] = 'D';
+                msg[n++] = 'i'; emit_hex((uint8_t)(ota_dbg_last_index >> 8), msg, &n);
+                emit_hex((uint8_t)(ota_dbg_last_index & 0xFFU), msg, &n);
+                msg[n++] = 'l'; emit_hex((uint8_t)(ota_dbg_last_rx_len >> 8), msg, &n);
+                emit_hex((uint8_t)(ota_dbg_last_rx_len & 0xFFU), msg, &n);
+                msg[n++] = 'f'; emit_hex((uint8_t)(ota_dbg_parse_fails >> 8), msg, &n);
+                emit_hex((uint8_t)(ota_dbg_parse_fails & 0xFFU), msg, &n);
+                msg[n++] = 'r'; emit_hex(ota_dbg_last_fail_reason, msg, &n);
+                msg[n++] = 's'; emit_hex((uint8_t)(ota_dbg_last_success_rx_len >> 8), msg, &n);
+                emit_hex((uint8_t)(ota_dbg_last_success_rx_len & 0xFFU), msg, &n);
                 msg[n++] = '\n';
                 send_ack(msg, n);
             } else if (idx == 4U && str_eq(buf, "SCAN", 4U)) {

@@ -15,7 +15,7 @@
 
 /* Timing budget from CONTEXT.md "通信超时": the AT request/response cycle is
  * 100 ms, so each exchange below uses that as its deadline. */
-#define OTA_TIMEOUT_MS 500U
+#define OTA_TIMEOUT_MS 100U
 
 /* Heartbeats sent while waiting for the glasses to agree, spaced one cycle apart
  * so the case keeps holding the glass in-box during the wait. */
@@ -64,6 +64,19 @@ static uint8_t ota_payload[AT_FRAME_MAX_PAYLOAD];
 
 /* Tracks whether a transfer is in progress; cleared by ota_init() and on exit. */
 static bool ota_active;
+
+/* Debug counters for OTA exchange diagnostics, exposed via STATUS.
+ *   last_rx_len:       hal_usart_recv return value from last ota_read_block call
+ *   last_index:        block index that failed/was in progress
+ *   parse_fails:       total at_frame_parse failures across all ota_read_block retries
+ *   last_fail_reason:  0=none,1=magic,2=size,3=CRC,4=opcode/status,5=index mismatch,6=rx_len==0
+ *   last_success_rx_len: rx_len from the last SUCCESSFUL read (tells us actual frame size received)
+ * Reset on ota_init(). */
+volatile uint16_t ota_dbg_last_rx_len = 0xFFFFU;
+volatile uint16_t ota_dbg_last_index = 0xFFFFU;
+volatile uint16_t ota_dbg_parse_fails = 0U;
+volatile uint8_t  ota_dbg_last_fail_reason = 0U;
+volatile uint16_t ota_dbg_last_success_rx_len = 0xFFFFU;
 
 /* One heartbeat exchange: send a heartbeat carrying the current case status with
  * the OTA flag set or cleared per request_ota, then refresh the glass status from
@@ -175,29 +188,55 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
         hal_wwdgt_feed();
         uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_READ,
                                                 (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
+        /* Cap maxlen at exactly one expected RSP frame so hal_usart_recv
+         * doesn't read into the NEXT frame's bytes if multiple RSPs are
+         * queued in the DMA buffer (e.g., host sent ahead due to retries). */
+        uint16_t expected_rx = (uint16_t)(AT_FRAME_HEADER_SIZE +
+                                          offsetof(at_case_packet_transfer, data) + block_size);
         uint16_t rx_len =
-            hal_usart_send_recv(ota_tx_buf, tx_len, ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS);
+            hal_usart_send_recv(ota_tx_buf, tx_len, ota_rx_buf, expected_rx, OTA_TIMEOUT_MS);
+        ota_dbg_last_rx_len = rx_len;
+        ota_dbg_last_index = index;
         if (rx_len == 0U) {
+            ota_dbg_last_fail_reason = 6U;
+            ota_dbg_parse_fails++;
             continue;
         }
 
         uint16_t opcode = 0U;
         uint8_t status = AT_ERR_UNKNOWN;
         uint8_t plen = 0U;
-        if (at_frame_parse(ota_rx_buf, rx_len, &opcode, &status, ota_payload, &plen) !=
-            AT_SUCCESS) {
+        at_status parse_rc = at_frame_parse(ota_rx_buf, rx_len, &opcode, &status, ota_payload, &plen);
+        if (parse_rc != AT_SUCCESS) {
+            ota_dbg_parse_fails++;
+            /* Distinguish failure reason: AT_ERR_MAGIC=0xFE, AT_ERR_LENGTH=0x03, AT_ERR_CRC=0x06 */
+            if (parse_rc == AT_ERR_MAGIC) {
+                ota_dbg_last_fail_reason = 1U;
+            } else if (parse_rc == AT_ERR_LENGTH) {
+                ota_dbg_last_fail_reason = 2U;
+            } else if (parse_rc == AT_ERR_CRC) {
+                ota_dbg_last_fail_reason = 3U;
+            } else {
+                ota_dbg_last_fail_reason = 9U;
+            }
             continue;
         }
         if (opcode != AT_OPCODE_CASE_PACKET_READ || status != AT_SUCCESS) {
+            ota_dbg_parse_fails++;
+            ota_dbg_last_fail_reason = 4U;
             continue;
         }
         /* The transfer header is role(2) + index(2) + type(1); data follows. */
         if (plen < (uint8_t)offsetof(at_case_packet_transfer, data)) {
+            ota_dbg_parse_fails++;
+            ota_dbg_last_fail_reason = 4U;
             continue;
         }
 
         const at_case_packet_transfer *rsp = (const at_case_packet_transfer *)ota_payload;
         if (rsp->index != index) {
+            ota_dbg_parse_fails++;
+            ota_dbg_last_fail_reason = 5U;
             continue;
         }
         uint16_t dlen = (uint16_t)(plen - (uint8_t)offsetof(at_case_packet_transfer, data));
@@ -210,6 +249,8 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
         if (type != NULL) {
             *type = rsp->type;
         }
+        ota_dbg_last_fail_reason = 0U;
+        ota_dbg_last_success_rx_len = rx_len;
         return true;
     }
     return false;
