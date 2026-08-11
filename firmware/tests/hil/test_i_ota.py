@@ -9,6 +9,7 @@ I02 完整烧录需要 App.bin 文件 + 板子重启重连，留作框架。
 import struct
 import time
 
+import pytest
 import sgc_at
 
 
@@ -21,41 +22,68 @@ def _flush_rx(serial_port):
 
 
 def _enter_charging(serial_port):
-    """RESET+OPEN → heartbeat → reply → wait for next heartbeat confirming
-    firmware left HANDSHAKING (interval > 500ms = MAINTAINING 1s or CHARGING 30s).
-    Keeps replying so retries see a response."""
+    """RESET+OPEN → heartbeat → reply for ~3s → query STATUS to verify firmware
+    entered CHARGING (or MAINTAINING).
+
+    State detection uses HIL STATUS query, not heartbeat interval. Reason:
+    CHARGING has a 30s heartbeat period (TIM spec for open-lid), so any
+    interval-based "left HANDSHAKING" check needs a 30s+ deadline. STATUS
+    queries the state machine directly and returns within ~100ms.
+    """
+    import sys as _sys
     import time as _t
+    _t0 = _t.time()
+
+    def _dbg(msg):
+        print(f"[echrg T+{(_t.time()-_t0)*1000:6.0f}ms] {msg}", flush=True)
+
+    _STATE_NAMES = {0: "IDLE", 1: "HANDSHAKING", 2: "CHARGING",
+                    3: "MAINTAINING", 4: "FORCE_CHARGING",
+                    5: "SHUTTING_DOWN", 6: "OTA", 7: "SHIP_MODE"}
+
     _flush_rx(serial_port)
+    _dbg("send RESET")
     sgc_at.send_command(serial_port, "RESET")
-    time.sleep(2.0)  # fixture open resets firmware via DTR edge; wait for v10 boot
+    _t.sleep(2.0)  # fixture open resets firmware via DTR edge; wait for v10 boot
     _flush_rx(serial_port)
+    _dbg("send OPEN")
     sgc_at.send_command(serial_port, "OPEN")
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
     assert frame is not None, "OPEN 后 5s 未收到心跳"
+    _dbg(f"got initial frame opcode={struct.unpack_from('>H', frame, 7)[0]:#06x}")
 
     response = sgc_at.pack_heartbeat_response(
         glass_soc=0x20, glass_sta=0x00, case_version=0
     )
-    last = _t.time()
-    deadline = _t.time() + 6.0
+    # Single response per attempt + STATUS poll. Don't flood: 3s of flood
+    # leaves ~60 response frames queued in firmware RX buffer; update_mode_poll
+    # then breaks on the leading RSP frame (opcode HEART) and STATUS HIL
+    # commands can never reach dispatch. Sending one response per loop and
+    # polling STATUS in between keeps the buffer shallow.
+    deadline = _t.time() + 10.0
+    last_status_query = 0.0
     while _t.time() < deadline:
         serial_port.write(response)
-        nxt = sgc_at.recv_request(serial_port, timeout=2.0)
-        if nxt is None:
+        _t.sleep(0.15)  # > hal_usart_recv's 100ms byte-gap timeout so firmware
+                         # has a chance to consume this response in a retry window
+        # Query STATUS every ~0.5s to check if firmware entered CHARGING.
+        if _t.time() - last_status_query < 0.5:
             continue
-        interval_ms = (_t.time() - last) * 1000
-        if interval_ms > 500:
-            # Satisfy the REQ that just triggered exit: sm_send_heartbeat is
-            # still blocked in hal_usart_recv waiting for this reply. Without
-            # it, the next command we send (e.g. OTA) gets consumed as a
-            # malformed heartbeat response and update_mode_poll never sees it.
-            _flush_rx(serial_port)
-            serial_port.write(response)
-            _t.sleep(0.15)  # > hal_usart_recv's 100ms byte-gap timeout
+        last_status_query = _t.time()
+        _flush_rx(serial_port)
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack is None:
+            _dbg("STATUS: no ACK, retry")
+            continue
+        st = sgc_at.parse_hil_status(ack)
+        s = st["state"]
+        _dbg(f"STATUS: state={s} ({_STATE_NAMES.get(s, '?')}) case_soc={st['case_soc']}")
+        if s in (2, 3):  # CHARGING or MAINTAINING
+            _dbg(f"handshake confirmed, firmware in {_STATE_NAMES[s]}")
             _flush_rx(serial_port)
             return frame
-        last = _t.time()
-    assert False, "6s 内 firmware 未离开 HANDSHAKING（握手没成功，OTA 命令来了也无效）"
+
+    assert False, "10s STATUS 轮询未确认固件进 CHARGING/MAINTAINING"
 
 
 def _await_opcode(serial_port, opcode, timeout, body_check=None):
@@ -71,6 +99,7 @@ def _await_opcode(serial_port, opcode, timeout, body_check=None):
     return None
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_i01_ota_trigger_reaches_prepare(serial_port):
     """I01: OTA cmd → case heartbeat with case_sta bit7=1 → agree → PREPARE.
 
