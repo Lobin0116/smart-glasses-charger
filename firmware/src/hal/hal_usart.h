@@ -17,6 +17,13 @@ bool hal_usart_rx_peek(uint8_t *c);
  * it in the buffer when the opcode is not what the caller expected. */
 bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n);
 
+/* Drop all unread bytes from the RX ring buffer by advancing the read pointer
+ * to the DMA's current write position. Used by hal_usart_init to clear any
+ * bytes the DMA picks up during USART enable, and by HIL RESET to flush
+ * stale heartbeat response frames that would otherwise sit ahead of HIL
+ * commands and block update_mode_poll dispatch. */
+void hal_usart_rx_clear(void);
+
 uint16_t hal_usart_send(const uint8_t *data, uint16_t len);
 
 uint16_t hal_usart_recv(uint8_t *buf, uint16_t maxlen, uint32_t timeout_ms);

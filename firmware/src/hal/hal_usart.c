@@ -48,12 +48,22 @@ void hal_usart_init(void)
 
     usart_enable(USART0);
 
+    /* Flush any bytes the DMA may have picked up between dma_channel_enable
+     * and usart_enable (e.g. noise during rail settling) so the first
+     * hal_usart_rx_get caller does not see garbage. */
+    hal_usart_rx_clear();
+
     hal_tr_switch_set(false);
 }
 
 static uint16_t rx_head_get(void)
 {
     return (uint16_t)(HAL_USART_RX_BUF_SIZE - dma_transfer_number_get(HAL_USART_RX_DMA_CH));
+}
+
+void hal_usart_rx_clear(void)
+{
+    rx_tail = rx_head_get();
 }
 
 bool hal_usart_rx_get(uint8_t *c)

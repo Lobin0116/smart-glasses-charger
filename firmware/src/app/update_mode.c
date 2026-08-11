@@ -35,6 +35,12 @@ static void send_hil_ack(uint16_t opcode, at_status status, const uint8_t *paylo
 
 static void handle_hil_reset(void)
 {
+    /* Flush any stale frames (heartbeat responses, partial HIL commands) from
+     * the RX ring buffer before clearing state. Otherwise update_mode_poll's
+     * next iteration peeks the leading production-protocol frame and breaks
+     * (per the opcode filter), leaving RESET's sibling commands (OPEN/CLOSE/
+     * KEY/OTA) stuck behind it in the buffer. */
+    hal_usart_rx_clear();
     sm.state = ST_IDLE;
     sm.retry_count = 0U;
     sm.glass_present = false;
