@@ -30,24 +30,23 @@ def serial_port():
 
 @pytest.fixture(autouse=True)
 def _drain_firmware(serial_port):
-    """Drain any leftover state before each test.
+    """Reset firmware to IDLE before each test.
 
-    Previous tests may leave firmware in HANDSHAKING or mid-OTA. Those
-    states block update_mode_poll, so RESET/KEY/OTA commands get swallowed
-    by hal_usart_recv. Sending heartbeats with case_version matching
-    CASE_FW_VERSION for 2s avoids re-triggering version-mismatch OTA;
-    then RESET clears state.
+    RESET HIL command forces the state machine back to IDLE regardless of
+    current state. update_mode_poll runs in main loop's blocking gaps
+    (handshake attempt ~800ms, charge_poll ~200ms), so RESET lands within
+    ~1s from any state except ST_OTA (synchronous ota_run).
+
+    We deliberately do NOT send heartbeat responses here. Doing so would
+    let firmware complete a handshake and enter CHARGING (30s heartbeat
+    gap), and the leftover response frames then sit in the firmware RX
+    buffer ahead of any HIL command — update_mode_poll peeks the response
+    frame first and breaks (production protocol opcode), so RESET never
+    reaches dispatch and the next test sees a polluted state.
     """
     import time as _t
     import sgc_at
 
-    rsp = sgc_at.pack_heartbeat_response(glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION)
-    end = _t.time() + 2.0
-    while _t.time() < end:
-        serial_port.write(rsp)
-        _t.sleep(0.05)
-    serial_port.reset_input_buffer()
-    sgc_at.reset_recv_buffer()
     sgc_at.send_command(serial_port, "RESET")
     _t.sleep(0.3)
     serial_port.reset_input_buffer()
@@ -55,11 +54,6 @@ def _drain_firmware(serial_port):
 
     yield
 
-    # Brief drain after test too
-    end = _t.time() + 0.5
-    while _t.time() < end:
-        serial_port.write(rsp)
-        _t.sleep(0.05)
     serial_port.reset_input_buffer()
     sgc_at.reset_recv_buffer()
 
