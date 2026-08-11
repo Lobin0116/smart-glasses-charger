@@ -94,7 +94,7 @@ def test_b04_recv_timeout_100ms(serial_port):
 
     # 发响应清理 firmware 状态（响应给 retry 即可，避免下个测试受影响）。
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
     serial_port.write(response)
 

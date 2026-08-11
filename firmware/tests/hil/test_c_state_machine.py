@@ -29,7 +29,7 @@ def _reset_open(serial_port):
 def _send_full_response(serial_port):
     """回一个"眼镜充满"心跳响应 (glass_soc=0xE4: bit7=满, low7=100%)."""
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=0xE4, glass_sta=0x00, case_version=0x01
+        glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
     serial_port.write(response)
 
@@ -37,7 +37,7 @@ def _send_full_response(serial_port):
 def _send_normal_response(serial_port, glass_soc=0x20):
     """回一个"眼镜未充满"心跳响应."""
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=glass_soc, glass_sta=0x00, case_version=0x01
+        glass_soc=glass_soc, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
     serial_port.write(response)
 
@@ -101,7 +101,7 @@ def test_c07_close_full_triggers_shutdown(serial_port):
     # the 100ms timeout, flush, then CLOSE. In MAINTAINING (1s heartbeat),
     # the main-loop window after recv returns is ~900ms — enough for CLOSE.
     serial_port.write(sgc_at.pack_heartbeat_response(
-        glass_soc=0xE4, glass_sta=0x00, case_version=0x01))
+        glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION))
     serial_port.flush()
     time.sleep(0.15)
     serial_port.reset_input_buffer()

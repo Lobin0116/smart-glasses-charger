@@ -3,6 +3,8 @@
 Covers frame format, CRC8, opcodes, status codes. Used by HIL tests to
 assemble responses (PC simulating glasses) and parse requests from firmware.
 """
+import os
+import re
 import struct
 import time
 
@@ -10,6 +12,28 @@ MAGIC_REQ = 0x23415423
 MAGIC_RSP = 0x23415023
 HEADER_SIZE = 10
 MAX_PAYLOAD = 255
+
+
+def _parse_case_fw_version() -> int:
+    """Read CASE_FW_VERSION from firmware/src/app/fw_version.h.
+
+    Keeps the value PC reports in heartbeat responses in sync with the
+    firmware's OTA version-mismatch trigger (state_machine.c:100).
+    """
+    fw_version_h = os.path.join(
+        os.path.dirname(__file__), "..", "..", "src", "app", "fw_version.h"
+    )
+    with open(fw_version_h, "r", encoding="utf-8") as f:
+        for line in f:
+            m = re.match(
+                r"\s*#define\s+CASE_FW_VERSION\s+(0x[0-9A-Fa-f]+|\d+)", line
+            )
+            if m:
+                return int(m.group(1), 0)
+    raise RuntimeError(f"CASE_FW_VERSION not found in {fw_version_h}")
+
+
+CASE_FW_VERSION = _parse_case_fw_version()
 
 OPCODE_CASE_HEART = 0x3001
 OPCODE_CASE_SHUTDOWN = 0x3002

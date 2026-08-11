@@ -120,7 +120,7 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
 
     # Agree → case proceeds to ota_prepare.
     serial_port.write(sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01, ota_agree=True
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION, ota_agree=True
     ))
 
     end = time.time() + 3.0

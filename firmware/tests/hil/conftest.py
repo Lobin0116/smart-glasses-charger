@@ -30,17 +30,18 @@ def serial_port():
 
 @pytest.fixture(autouse=True)
 def _drain_firmware(serial_port):
-    """Drain any auto-OTA loop or leftover state before each test.
+    """Drain any leftover state before each test.
 
-    Previous tests may leave firmware in auto-OTA (version mismatch) or
-    HANDSHAKING. Those states block update_mode_poll, so RESET/KEY/OTA
-    commands get swallowed by hal_usart_recv. Sending case_version=0x01
-    heartbeats for 2s breaks the auto-OTA cycle; then RESET clears state.
+    Previous tests may leave firmware in HANDSHAKING or mid-OTA. Those
+    states block update_mode_poll, so RESET/KEY/OTA commands get swallowed
+    by hal_usart_recv. Sending heartbeats with case_version matching
+    CASE_FW_VERSION for 2s avoids re-triggering version-mismatch OTA;
+    then RESET clears state.
     """
     import time as _t
     import sgc_at
 
-    rsp = sgc_at.pack_heartbeat_response(glass_soc=0x20, glass_sta=0x00, case_version=0x01)
+    rsp = sgc_at.pack_heartbeat_response(glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION)
     end = _t.time() + 2.0
     while _t.time() < end:
         serial_port.write(rsp)

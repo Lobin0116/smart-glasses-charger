@@ -54,7 +54,7 @@ def test_f02_close_lid_event(serial_port):
 
     # 完成握手：持续回响应，直到心跳间隔 >500ms（已离开 HANDSHAKING）。
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
     serial_port.timeout = 0.1
     last = time.time()

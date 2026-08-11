@@ -51,7 +51,7 @@ def test_a15_send_response_accepted(serial_port, heartbeat_frame):
     case_soc = parsed["payload"][2]
     glass_soc = (case_soc & 0x7F) | 0x80
     glass_sta = 0x00
-    case_version = 0x01
+    case_version = sgc_at.CASE_FW_VERSION
     response = sgc_at.pack_heartbeat_response(
         glass_soc=glass_soc, glass_sta=glass_sta, case_version=case_version
     )
@@ -92,7 +92,7 @@ def test_a05_crc_range(heartbeat_frame):
 def test_a14_response_payload_structure():
     """A14: 心跳响应 payload = [ROLE_GLASS, ROLE_CASE, glass_soc, glass_sta, case_version]."""
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
     # Header 10 字节 (MAGIC 4 + CRC 1 + SIZE 2 + OPCODE 2 + STATUS 1)；
     # payload 从 offset 10 开始，长度 5。
@@ -103,7 +103,7 @@ def test_a14_response_payload_structure():
         sgc_at.ROLE_CASE,   # src=0
         0x20,               # glass_soc
         0x00,               # glass_sta
-        0x01,               # case_version
+        sgc_at.CASE_FW_VERSION,  # case_version
     ])
     assert payload == expected, (
         f"payload={payload.hex()}, expected={expected.hex()}"
