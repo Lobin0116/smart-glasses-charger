@@ -5,21 +5,17 @@
 #include "gd32e23x.h"
 #include "gd32e23x_fmc.h"
 #ifndef BL_NO_WWDGT
-#include "hal_wwdgt.h"
+    #include "hal_wwdgt.h"
 #endif
 
-#define FMC_FLAG_ALL                                                                                                               \
-    (FMC_FLAG_END | FMC_FLAG_PGERR | FMC_FLAG_PGAERR | FMC_FLAG_WPERR)
+#define FMC_FLAG_ALL (FMC_FLAG_END | FMC_FLAG_PGERR | FMC_FLAG_PGAERR | FMC_FLAG_WPERR)
 
-void hal_flash_unlock(void) {
-    fmc_unlock();
-}
+void hal_flash_unlock(void) { fmc_unlock(); }
 
-void hal_flash_lock(void) {
-    fmc_lock();
-}
+void hal_flash_lock(void) { fmc_lock(); }
 
-bool hal_flash_page_erase(uint32_t page_address) {
+bool hal_flash_page_erase(uint32_t page_address)
+{
     fmc_state_enum state;
     __disable_irq();
     state = fmc_page_erase(page_address);
@@ -31,7 +27,8 @@ bool hal_flash_page_erase(uint32_t page_address) {
     return state == FMC_READY;
 }
 
-bool hal_flash_write(uint32_t address, const uint8_t *data, uint32_t len) {
+bool hal_flash_write(uint32_t address, const uint8_t *data, uint32_t len)
+{
     if ((address & 0x3U) != 0U || (len & 0x3U) != 0U || len == 0U) {
         return false;
     }

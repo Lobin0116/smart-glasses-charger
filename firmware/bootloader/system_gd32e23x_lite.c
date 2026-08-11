@@ -10,7 +10,8 @@
 
 uint32_t SystemCoreClock = 8000000U;
 
-void SystemInit(void) {
+void SystemInit(void)
+{
     /* VTOR = flash base; BL vectors at 0x08000000. */
     SCB->VTOR = (uint32_t)0x08000000U;
 }

@@ -8,7 +8,8 @@
  * below is intentionally agnostic to the physical backend so the driver file
  * can be swapped without touching callers. */
 
-typedef enum {
+typedef enum
+{
     LED_RED,
     LED_GREEN,
     LED_BLUE,
@@ -16,7 +17,8 @@ typedef enum {
     LED_COLOR_COUNT,
 } led_color_t;
 
-typedef enum {
+typedef enum
+{
     LED_OFF,
     LED_ON,
     LED_BREATH, /* 0->100->0 brightness ramp, ~2 s cycle */

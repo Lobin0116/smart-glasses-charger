@@ -1,19 +1,19 @@
 #ifdef HIL_TEST
-#include "update_mode.h"
+    #include "update_mode.h"
 
-#include <stdbool.h>
-#include <stddef.h>
+    #include <stdbool.h>
+    #include <stddef.h>
 
-#include "at_frame.h"
-#include "at_opcode.h"
-#include "at_types.h"
-#include "button.h"
-#include "gd32e23x.h"
-#include "hal_i2c.h"
-#include "hal_timer.h"
-#include "hal_usart.h"
-#include "hal_wwdgt.h"
-#include "state_machine.h"
+    #include "at_frame.h"
+    #include "at_opcode.h"
+    #include "at_types.h"
+    #include "button.h"
+    #include "gd32e23x.h"
+    #include "hal_i2c.h"
+    #include "hal_timer.h"
+    #include "hal_usart.h"
+    #include "hal_wwdgt.h"
+    #include "state_machine.h"
 
 extern sm_ctx_t sm;
 
@@ -22,18 +22,19 @@ extern sm_ctx_t sm;
 extern volatile uint16_t ota_dbg_last_rx_len;
 extern volatile uint16_t ota_dbg_last_index;
 extern volatile uint16_t ota_dbg_parse_fails;
-extern volatile uint8_t  ota_dbg_last_fail_reason;
+extern volatile uint8_t ota_dbg_last_fail_reason;
 extern volatile uint16_t ota_dbg_last_success_rx_len;
 
 /* Send a HIL ACK frame: response magic + echoed opcode + status + payload. */
-static void send_hil_ack(uint16_t opcode, at_status status,
-                         const uint8_t *payload, uint8_t payload_len) {
+static void send_hil_ack(uint16_t opcode, at_status status, const uint8_t *payload, uint8_t payload_len)
+{
     uint8_t buf[80];
     uint16_t len = at_frame_pack_response(buf, opcode, (uint8_t)status, payload, payload_len);
     hal_usart_send(buf, len);
 }
 
-static void handle_hil_reset(void) {
+static void handle_hil_reset(void)
+{
     sm.state = ST_IDLE;
     sm.retry_count = 0U;
     sm.glass_present = false;
@@ -42,34 +43,39 @@ static void handle_hil_reset(void) {
     sm.ota_requested = false;
     sm.reported_case_version = 0U;
     sm.lid_open = false;
-    sm_inject_lid_event(false);  /* clear any pending lid event */
+    sm_inject_lid_event(false); /* clear any pending lid event */
     send_hil_ack(AT_OPCODE_HIL_RESET, AT_SUCCESS, NULL, 0U);
 }
 
-static void handle_hil_open(void) {
+static void handle_hil_open(void)
+{
     sm_inject_lid_event(true);
     send_hil_ack(AT_OPCODE_HIL_OPEN, AT_SUCCESS, NULL, 0U);
 }
 
-static void handle_hil_close(void) {
+static void handle_hil_close(void)
+{
     sm_inject_lid_event(false);
     send_hil_ack(AT_OPCODE_HIL_CLOSE, AT_SUCCESS, NULL, 0U);
 }
 
-static void handle_hil_key(void) {
+static void handle_hil_key(void)
+{
     button_on_press();
     send_hil_ack(AT_OPCODE_HIL_KEY, AT_SUCCESS, NULL, 0U);
 }
 
-static void handle_hil_ota(void) {
+static void handle_hil_ota(void)
+{
     sm.ota_requested = true;
     send_hil_ack(AT_OPCODE_HIL_OTA, AT_SUCCESS, NULL, 0U);
 }
 
-/* HIL_STATUS payload (packed, big-endian u16 fields) — 17 bytes.
- * PC unpacks with struct.unpack in sgc_at.py. */
-#pragma pack(push, 1)
-typedef struct {
+    /* HIL_STATUS payload (packed, big-endian u16 fields) — 17 bytes.
+     * PC unpacks with struct.unpack in sgc_at.py. */
+    #pragma pack(push, 1)
+typedef struct
+{
     uint8_t ver;
     uint8_t soc_reg;
     uint8_t cfg;
@@ -88,9 +94,10 @@ typedef struct {
     uint8_t ota_succ_hi;
     uint8_t ota_succ_lo;
 } hil_status_payload_t;
-#pragma pack(pop)
+    #pragma pack(pop)
 
-static void handle_hil_status(void) {
+static void handle_hil_status(void)
+{
     uint8_t ver = 0U, soc_reg = 0U, cfg = 0U;
     (void)hal_i2c_read_reg(0x63U, 0x00U, &ver, 1U);
     (void)hal_i2c_read_reg(0x63U, 0x04U, &soc_reg, 1U);
@@ -118,7 +125,8 @@ static void handle_hil_status(void) {
     send_hil_ack(AT_OPCODE_HIL_STATUS, AT_SUCCESS, (const uint8_t *)&p, (uint8_t)sizeof(p));
 }
 
-static void handle_hil_scan(void) {
+static void handle_hil_scan(void)
+{
     uint8_t addrs[32];
     uint8_t n = 0U;
     for (uint8_t addr = 1U; addr < 0x80U && n < (uint8_t)sizeof(addrs); addr++) {
@@ -130,11 +138,12 @@ static void handle_hil_scan(void) {
     send_hil_ack(AT_OPCODE_HIL_SCAN, AT_SUCCESS, addrs, n);
 }
 
-void update_mode_poll(void) {
+void update_mode_poll(void)
+{
     while (true) {
         uint8_t lead;
         if (!hal_usart_rx_peek(&lead)) {
-            break;  /* ring buffer empty */
+            break; /* ring buffer empty */
         }
 
         if (lead != 0x23U) {
@@ -147,7 +156,7 @@ void update_mode_poll(void) {
         /* Peek the 10-byte header without consuming. */
         uint8_t header[AT_FRAME_HEADER_SIZE];
         if (!hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
-            break;  /* header not fully arrived yet; wait for next poll */
+            break; /* header not fully arrived yet; wait for next poll */
         }
 
         uint16_t opcode = (uint16_t)(((uint16_t)header[7] << 8) | header[8]);
@@ -156,8 +165,8 @@ void update_mode_poll(void) {
          * ota_flow to consume via at_frame_recv. update_mode_poll must NOT
          * touch them — that was the root cause of the "charge_poll eats HIL
          * commands" bug. */
-        if (opcode == AT_OPCODE_CASE_HEART || opcode == AT_OPCODE_CASE_SHUTDOWN ||
-            opcode == AT_OPCODE_CASE_PACKET_PREPARE || opcode == AT_OPCODE_CASE_PACKET_READ) {
+        if (opcode == AT_OPCODE_CASE_HEART || opcode == AT_OPCODE_CASE_SHUTDOWN
+            || opcode == AT_OPCODE_CASE_PACKET_PREPARE || opcode == AT_OPCODE_CASE_PACKET_READ) {
             break;
         }
 
@@ -193,14 +202,29 @@ void update_mode_poll(void) {
         }
 
         switch (opcode) {
-        case AT_OPCODE_HIL_RESET:  handle_hil_reset();  break;
-        case AT_OPCODE_HIL_OPEN:   handle_hil_open();   break;
-        case AT_OPCODE_HIL_CLOSE:  handle_hil_close();  break;
-        case AT_OPCODE_HIL_KEY:    handle_hil_key();    break;
-        case AT_OPCODE_HIL_STATUS: handle_hil_status(); break;
-        case AT_OPCODE_HIL_SCAN:   handle_hil_scan();   break;
-        case AT_OPCODE_HIL_OTA:    handle_hil_ota();    break;
-        default: break;
+            case AT_OPCODE_HIL_RESET:
+                handle_hil_reset();
+                break;
+            case AT_OPCODE_HIL_OPEN:
+                handle_hil_open();
+                break;
+            case AT_OPCODE_HIL_CLOSE:
+                handle_hil_close();
+                break;
+            case AT_OPCODE_HIL_KEY:
+                handle_hil_key();
+                break;
+            case AT_OPCODE_HIL_STATUS:
+                handle_hil_status();
+                break;
+            case AT_OPCODE_HIL_SCAN:
+                handle_hil_scan();
+                break;
+            case AT_OPCODE_HIL_OTA:
+                handle_hil_ota();
+                break;
+            default:
+                break;
         }
 
     next:

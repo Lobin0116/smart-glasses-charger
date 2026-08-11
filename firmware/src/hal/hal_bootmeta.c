@@ -6,7 +6,8 @@
 
 /* Software CRC32 (IEEE 802.3, poly 0xEDB88320, init 0xFFFFFFFF, final XOR).
  * Table-less to stay callable from Bootloader main (no .data dependencies). */
-static uint32_t bootmeta_crc32(const uint8_t *data, uint32_t len) {
+static uint32_t bootmeta_crc32(const uint8_t *data, uint32_t len)
+{
     uint32_t crc = 0xFFFFFFFFU;
     for (uint32_t i = 0U; i < len; i++) {
         crc ^= (uint32_t)data[i];
@@ -18,7 +19,8 @@ static uint32_t bootmeta_crc32(const uint8_t *data, uint32_t len) {
     return ~crc;
 }
 
-static bool meta_validate(const boot_meta_t *m, uint32_t *seq_out) {
+static bool meta_validate(const boot_meta_t *m, uint32_t *seq_out)
+{
     if (m->magic != BOOT_META_MAGIC) {
         return false;
     }
@@ -32,7 +34,8 @@ static bool meta_validate(const boot_meta_t *m, uint32_t *seq_out) {
     return true;
 }
 
-static const boot_meta_t *pick_latest(uint32_t *seq_out) {
+static const boot_meta_t *pick_latest(uint32_t *seq_out)
+{
     const boot_meta_t *m0 = (const boot_meta_t *)BOOT_META_ADDR_0;
     const boot_meta_t *m1 = (const boot_meta_t *)BOOT_META_ADDR_1;
     uint32_t s0 = 0U, s1 = 0U;
@@ -65,7 +68,8 @@ static const boot_meta_t *pick_latest(uint32_t *seq_out) {
     return m1;
 }
 
-bool hal_bootmeta_read_staged(bool *staged, uint32_t *fw_size) {
+bool hal_bootmeta_read_staged(bool *staged, uint32_t *fw_size)
+{
     const boot_meta_t *m = pick_latest(NULL);
     if (m == NULL) {
         if (staged != NULL) {
@@ -85,7 +89,8 @@ bool hal_bootmeta_read_staged(bool *staged, uint32_t *fw_size) {
     return true;
 }
 
-static bool write_meta_at(uint32_t target_addr, uint32_t staged, uint32_t fw_size, uint32_t seq) {
+static bool write_meta_at(uint32_t target_addr, uint32_t staged, uint32_t fw_size, uint32_t seq)
+{
     boot_meta_t nm;
     nm.magic = BOOT_META_MAGIC;
     nm.staged = staged;
@@ -104,7 +109,8 @@ static bool write_meta_at(uint32_t target_addr, uint32_t staged, uint32_t fw_siz
 
 /* Pick the older meta slot to overwrite (lower seq, or the invalid one).
  * Returns target address and the next seq to write. */
-static uint32_t next_meta_target(uint32_t *new_seq_out) {
+static uint32_t next_meta_target(uint32_t *new_seq_out)
+{
     const boot_meta_t *m0 = (const boot_meta_t *)BOOT_META_ADDR_0;
     const boot_meta_t *m1 = (const boot_meta_t *)BOOT_META_ADDR_1;
     uint32_t s0 = 0U, s1 = 0U;
@@ -134,13 +140,15 @@ static uint32_t next_meta_target(uint32_t *new_seq_out) {
     return target_addr;
 }
 
-bool hal_bootmeta_set_staged(uint32_t fw_size) {
+bool hal_bootmeta_set_staged(uint32_t fw_size)
+{
     uint32_t new_seq = 0U;
     uint32_t target = next_meta_target(&new_seq);
     return write_meta_at(target, 1U, fw_size, new_seq);
 }
 
-bool hal_bootmeta_clear_staged(void) {
+bool hal_bootmeta_clear_staged(void)
+{
     uint32_t fw_size = 0U;
     const boot_meta_t *latest = pick_latest(NULL);
     if (latest != NULL) {

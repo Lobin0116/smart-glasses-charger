@@ -7,11 +7,13 @@
 #include "hal_timer.h"
 #include "hal_usart.h"
 
-uint8_t sm_build_case_soc_byte(uint8_t soc, bool charging) {
+uint8_t sm_build_case_soc_byte(uint8_t soc, bool charging)
+{
     return (uint8_t)((charging ? 0x80U : 0U) | (soc & 0x7FU));
 }
 
-uint8_t sm_build_case_sta_byte(bool lid_open, bool ota_requested) {
+uint8_t sm_build_case_sta_byte(bool lid_open, bool ota_requested)
+{
     uint8_t sta = 0U;
     if (lid_open) {
         sta |= 0x01U;
@@ -22,7 +24,8 @@ uint8_t sm_build_case_sta_byte(bool lid_open, bool ota_requested) {
     return sta;
 }
 
-static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply) {
+static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply)
+{
     uint8_t buf[64];
     uint8_t rsp[64];
 
@@ -32,8 +35,7 @@ static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply) {
         .case_sta = sm_build_case_sta_byte(ctx->lid_open, ctx->ota_requested),
     };
 
-    uint16_t frame_len = at_frame_pack_request(buf, AT_OPCODE_CASE_HEART, (uint8_t *)&payload,
-                                               sizeof(payload), 0x00);
+    uint16_t frame_len = at_frame_pack_request(buf, AT_OPCODE_CASE_HEART, (uint8_t *)&payload, sizeof(payload), 0x00);
 
     hal_usart_send(buf, frame_len);
     uint16_t rsp_len = at_frame_recv(rsp, sizeof(rsp), COMM_TIMEOUT_MS, AT_OPCODE_CASE_HEART);
@@ -58,7 +60,8 @@ static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply) {
     return false;
 }
 
-bool sm_do_handshake(sm_ctx_t *ctx) {
+bool sm_do_handshake(sm_ctx_t *ctx)
+{
     hal_pwr_pulse_charge(HANDSHAKE_5V_MS);
     hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
     hal_pwr_enter_comm();
@@ -78,7 +81,8 @@ bool sm_do_handshake(sm_ctx_t *ctx) {
     return false;
 }
 
-bool sm_do_charge_poll(sm_ctx_t *ctx) {
+bool sm_do_charge_poll(sm_ctx_t *ctx)
+{
     hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
     hal_pwr_enter_comm();
 
@@ -91,12 +95,14 @@ bool sm_do_charge_poll(sm_ctx_t *ctx) {
     return false;
 }
 
-bool sm_do_maintain_heartbeat(sm_ctx_t *ctx) {
+bool sm_do_maintain_heartbeat(sm_ctx_t *ctx)
+{
     at_glass_data reply;
     return sm_send_heartbeat(ctx, &reply);
 }
 
-bool sm_do_force_charge_probe(sm_ctx_t *ctx) {
+bool sm_do_force_charge_probe(sm_ctx_t *ctx)
+{
     hal_pwr_enter_charge();
     hal_timer_delay_ms(HANDSHAKE_5V_MS);
     hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
@@ -112,13 +118,13 @@ bool sm_do_force_charge_probe(sm_ctx_t *ctx) {
     return false;
 }
 
-bool sm_do_shutdown(void) {
+bool sm_do_shutdown(void)
+{
     uint8_t buf[64];
     uint8_t rsp[64];
 
     at_case_role role = {.des = AT_CASE_ROLE_GLASS, .src = AT_CASE_ROLE_CASE};
-    uint16_t frame_len =
-        at_frame_pack_request(buf, AT_OPCODE_CASE_SHUTDOWN, (uint8_t *)&role, sizeof(role), 0x00);
+    uint16_t frame_len = at_frame_pack_request(buf, AT_OPCODE_CASE_SHUTDOWN, (uint8_t *)&role, sizeof(role), 0x00);
 
     hal_usart_send(buf, frame_len);
     uint16_t rsp_len = at_frame_recv(rsp, sizeof(rsp), COMM_TIMEOUT_MS, AT_OPCODE_CASE_SHUTDOWN);

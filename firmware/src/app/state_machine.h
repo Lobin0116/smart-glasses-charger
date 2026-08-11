@@ -11,7 +11,8 @@
  * edges (lid open, charge IRQs) reach the machine through sm_handle_event(); the
  * slow periodic work (heartbeat polling, retries) happens in sm_tick(). */
 
-typedef enum {
+typedef enum
+{
     ST_IDLE,           /* lid shut, no glass, low-power standby              */
     ST_HANDSHAKING,    /* 5V pulse -> discharge -> heartbeat, retry x3       */
     ST_CHARGING,       /* glass present and on the 5V rail, heartbeat polled */
@@ -22,7 +23,8 @@ typedef enum {
     ST_SHIP_MODE,      /* standby, NRST-only wake                            */
 } sm_state_t;
 
-typedef struct {
+typedef struct
+{
     sm_state_t state;
     uint32_t state_enter_ms;
     uint32_t last_comms_ms;

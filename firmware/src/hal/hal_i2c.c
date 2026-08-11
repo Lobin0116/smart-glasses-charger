@@ -15,7 +15,8 @@
 #define HAL_I2C_TIMEOUT_MS 100U
 
 /* Spin until flag reads the expected level, or the 100 ms budget elapses. */
-static bool hal_i2c_wait_flag(i2c_flag_enum flag, FlagStatus expected) {
+static bool hal_i2c_wait_flag(i2c_flag_enum flag, FlagStatus expected)
+{
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) != expected) {
         if (hal_timer_expired(start, HAL_I2C_TIMEOUT_MS)) {
@@ -27,7 +28,8 @@ static bool hal_i2c_wait_flag(i2c_flag_enum flag, FlagStatus expected) {
 
 /* Spin until flag asserts, bailing early on an acknowledge error (a slave NACK on
  * its address or a data byte) or the 100 ms budget. */
-static bool hal_i2c_wait_or_err(i2c_flag_enum flag) {
+static bool hal_i2c_wait_or_err(i2c_flag_enum flag)
+{
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) == RESET) {
         if (i2c_flag_get(I2C0, I2C_FLAG_AERR) == SET) {
@@ -43,7 +45,8 @@ static bool hal_i2c_wait_or_err(i2c_flag_enum flag) {
 
 /* Wait for the bus to read idle before asserting START. A slave holding a line low
  * parks I2CBSY; the timeout turns that into a normal failure rather than a hang. */
-static bool hal_i2c_wait_idle(void) {
+static bool hal_i2c_wait_idle(void)
+{
     if (hal_i2c_wait_flag(I2C_FLAG_I2CBSY, RESET)) {
         return true;
     }
@@ -52,7 +55,8 @@ static bool hal_i2c_wait_idle(void) {
     return hal_i2c_wait_flag(I2C_FLAG_I2CBSY, RESET);
 }
 
-void hal_i2c_init(void) {
+void hal_i2c_init(void)
+{
     rcu_periph_clock_enable(RCU_I2C0);
     i2c_deinit(I2C0);
     i2c_clock_config(I2C0, HAL_I2C_BUS_FREQ_HZ, I2C_DTCY_2);
@@ -65,7 +69,8 @@ void hal_i2c_init(void) {
  * reset will hold the master's START condition hostage. Toggling SCL nine
  * times manually clocks the stuck byte out and lets the slave release SDA,
  * after which a STOP on the GPIO layer frees the bus for a fresh start. */
-void hal_i2c_bus_recover(void) {
+void hal_i2c_bus_recover(void)
+{
     /* Switch PB6/PB7 to GPIO output mode for manual clocking. */
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
@@ -75,20 +80,20 @@ void hal_i2c_bus_recover(void) {
 
     for (int i = 0; i < 9; i++) {
         if (gpio_input_bit_get(GPIOB, GPIO_PIN_7)) {
-            break; /* SDA released, no need for more clocks */
+            break;                         /* SDA released, no need for more clocks */
         }
         gpio_bit_reset(GPIOB, GPIO_PIN_6); /* SCL low */
         hal_timer_delay_ms(1);
-        gpio_bit_set(GPIOB, GPIO_PIN_6); /* SCL high */
+        gpio_bit_set(GPIOB, GPIO_PIN_6);   /* SCL high */
         hal_timer_delay_ms(1);
     }
 
     /* Generate a manual STOP: SDA rises while SCL is high. */
     gpio_bit_reset(GPIOB, GPIO_PIN_7); /* SDA low */
     hal_timer_delay_ms(1);
-    gpio_bit_set(GPIOB, GPIO_PIN_6); /* SCL high */
+    gpio_bit_set(GPIOB, GPIO_PIN_6);   /* SCL high */
     hal_timer_delay_ms(1);
-    gpio_bit_set(GPIOB, GPIO_PIN_7); /* SDA high = STOP */
+    gpio_bit_set(GPIOB, GPIO_PIN_7);   /* SDA high = STOP */
 
     hal_timer_delay_ms(1);
 
@@ -107,7 +112,8 @@ void hal_i2c_bus_recover(void) {
 /* Assert START, send addr7 in the given direction, and confirm the slave answered.
  * A stale AERR from a prior NACK is cleared first so it cannot false-trip the wait.
  * On a NACK the hardware emits STOP on its own, so the caller need not recover. */
-static bool hal_i2c_master_addr(uint8_t addr7, uint32_t direction) {
+static bool hal_i2c_master_addr(uint8_t addr7, uint32_t direction)
+{
     i2c_flag_clear(I2C0, I2C_FLAG_AERR);
     i2c_start_on_bus(I2C0);
     if (!hal_i2c_wait_flag(I2C_FLAG_SBSEND, SET)) {
@@ -125,7 +131,8 @@ static bool hal_i2c_master_addr(uint8_t addr7, uint32_t direction) {
 
 /* Push one byte: wait for the TX register to drain, load it, then wait until it
  * has fully left the shift register (BTC). A NACK on the byte surfaces as AERR. */
-static bool hal_i2c_tx_byte(uint8_t byte) {
+static bool hal_i2c_tx_byte(uint8_t byte)
+{
     if (!hal_i2c_wait_flag(I2C_FLAG_TBE, SET)) {
         return false;
     }
@@ -133,7 +140,8 @@ static bool hal_i2c_tx_byte(uint8_t byte) {
     return hal_i2c_wait_or_err(I2C_FLAG_BTC);
 }
 
-int hal_i2c_write(uint8_t addr7, const uint8_t *data, uint16_t len) {
+int hal_i2c_write(uint8_t addr7, const uint8_t *data, uint16_t len)
+{
     if (len != 0U && data == NULL) {
         return -1;
     }
@@ -155,7 +163,8 @@ int hal_i2c_write(uint8_t addr7, const uint8_t *data, uint16_t len) {
     return 0;
 }
 
-int hal_i2c_write_reg(uint8_t addr7, uint8_t reg, const uint8_t *data, uint16_t len) {
+int hal_i2c_write_reg(uint8_t addr7, uint8_t reg, const uint8_t *data, uint16_t len)
+{
     if (len != 0U && data == NULL) {
         return -1;
     }
@@ -180,7 +189,8 @@ int hal_i2c_write_reg(uint8_t addr7, uint8_t reg, const uint8_t *data, uint16_t 
     return 0;
 }
 
-int hal_i2c_read_reg(uint8_t addr7, uint8_t reg, uint8_t *buf, uint16_t len) {
+int hal_i2c_read_reg(uint8_t addr7, uint8_t reg, uint8_t *buf, uint16_t len)
+{
     if (len == 0U || buf == NULL) {
         return -1;
     }

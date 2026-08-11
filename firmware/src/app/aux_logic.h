@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 /* Task 25: NTC temperature protection */
-typedef enum {
+typedef enum
+{
     NTC_NORMAL,
     NTC_COLD,    /* 0 ~ <15C: reduced charge */
     NTC_MILD,    /* 15 ~ <45C: full charge */
@@ -19,7 +20,12 @@ bool ntc_should_reduce_charge(ntc_zone_t zone);
 bool ntc_should_stop_charge(ntc_zone_t zone);
 
 /* Task 26: Wired/wireless charge arbitration */
-typedef enum { CHARGE_SRC_NONE, CHARGE_SRC_USB, CHARGE_SRC_WIRELESS } charge_src_t;
+typedef enum
+{
+    CHARGE_SRC_NONE,
+    CHARGE_SRC_USB,
+    CHARGE_SRC_WIRELESS
+} charge_src_t;
 
 charge_src_t charge_arbitrate(bool usb_valid, bool wireless_valid);
 void charge_enable_source(charge_src_t src);

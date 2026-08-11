@@ -20,7 +20,7 @@
 /* Heartbeats sent while waiting for the glasses to agree, spaced one cycle apart
  * so the case keeps holding the glass in-box during the wait. */
 #define OTA_REQUEST_RETRIES 3U
-#define OTA_REQUEST_GAP_MS 100U
+#define OTA_REQUEST_GAP_MS  100U
 
 /* Bounded retries for the prepare and per-block exchanges. */
 #define OTA_EXCHANGE_RETRIES 3U
@@ -35,21 +35,22 @@
 #define OTA_MAX_BLOCKS 1024U
 
 /* Return codes from ota_run(). */
-#define OTA_OK 0
-#define OTA_ERR_REQUEST (-1)
-#define OTA_ERR_PREPARE (-2)
-#define OTA_ERR_READ (-3)
-#define OTA_ERR_RUNAWAY (-4)
+#define OTA_OK              0
+#define OTA_ERR_REQUEST     (-1)
+#define OTA_ERR_PREPARE     (-2)
+#define OTA_ERR_READ        (-3)
+#define OTA_ERR_RUNAWAY     (-4)
 #define OTA_ERR_FLASH_ERASE (-5)
-#define OTA_ERR_FLASH_PROG (-6)
-#define OTA_ERR_VERIFY (-7)
-#define OTA_ERR_META (-8)
+#define OTA_ERR_FLASH_PROG  (-6)
+#define OTA_ERR_VERIFY      (-7)
+#define OTA_ERR_META        (-8)
 
 /* Firmware verification hook. Protocol (AT_Communication_Protocol.pdf +
  * dual_pin_timing) does not define a checksum field, so verification is
  * reserved but unimplemented — see docs/OTA_UPGRADE_PLAN.md §6. Returns true
  * unconditionally; fill in after the protocol is extended. */
-static bool ota_verify(uint32_t addr, uint32_t size) {
+static bool ota_verify(uint32_t addr, uint32_t size)
+{
     (void)addr;
     (void)size;
     return true;
@@ -75,21 +76,22 @@ static bool ota_active;
 volatile uint16_t ota_dbg_last_rx_len = 0xFFFFU;
 volatile uint16_t ota_dbg_last_index = 0xFFFFU;
 volatile uint16_t ota_dbg_parse_fails = 0U;
-volatile uint8_t  ota_dbg_last_fail_reason = 0U;
+volatile uint8_t ota_dbg_last_fail_reason = 0U;
 volatile uint16_t ota_dbg_last_success_rx_len = 0xFFFFU;
 
 /* One heartbeat exchange: send a heartbeat carrying the current case status with
  * the OTA flag set or cleared per request_ota, then refresh the glass status from
  * the reply. Returns true on a valid reply and reports the agree flag. */
-static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed) {
+static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed)
+{
     at_case_data req;
     req.role.des = AT_CASE_ROLE_GLASS;
     req.role.src = AT_CASE_ROLE_CASE;
     req.case_soc = (uint8_t)((ctx->case_soc & 0x7FU) | (ctx->glass_charging ? 0x80U : 0x00U));
     req.case_sta = (uint8_t)((ctx->lid_open ? 0x01U : 0x00U) | (request_ota ? 0x80U : 0x00U));
 
-    uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_HEART, (const uint8_t *)&req,
-                                            (uint8_t)sizeof(req), 0U);
+    uint16_t tx_len
+        = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_HEART, (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
     hal_usart_send(ota_tx_buf, tx_len);
     uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS, AT_OPCODE_CASE_HEART);
     if (rx_len == 0U) {
@@ -122,7 +124,8 @@ static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed) {
 
 void ota_init(void) { ota_active = false; }
 
-bool ota_request(sm_ctx_t *ctx) {
+bool ota_request(sm_ctx_t *ctx)
+{
     for (uint8_t i = 0U; i < OTA_REQUEST_RETRIES; i++) {
         hal_wwdgt_feed();
         if (i > 0U) {
@@ -137,18 +140,18 @@ bool ota_request(sm_ctx_t *ctx) {
     return false;
 }
 
-bool ota_prepare(uint32_t *fw_size) {
+bool ota_prepare(uint32_t *fw_size)
+{
     at_case_role req;
     req.des = AT_CASE_ROLE_GLASS;
     req.src = AT_CASE_ROLE_CASE;
 
     for (uint8_t i = 0U; i < OTA_EXCHANGE_RETRIES; i++) {
         hal_wwdgt_feed();
-        uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_PREPARE,
-                                                (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
+        uint16_t tx_len = at_frame_pack_request(
+            ota_tx_buf, AT_OPCODE_CASE_PACKET_PREPARE, (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
         hal_usart_send(ota_tx_buf, tx_len);
-        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS,
-                                        AT_OPCODE_CASE_PACKET_PREPARE);
+        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS, AT_OPCODE_CASE_PACKET_PREPARE);
         if (rx_len == 0U) {
             continue;
         }
@@ -156,8 +159,7 @@ bool ota_prepare(uint32_t *fw_size) {
         uint16_t opcode = 0U;
         uint8_t status = AT_ERR_UNKNOWN;
         uint8_t plen = 0U;
-        if (at_frame_parse(ota_rx_buf, rx_len, &opcode, &status, ota_payload, &plen) !=
-            AT_SUCCESS) {
+        if (at_frame_parse(ota_rx_buf, rx_len, &opcode, &status, ota_payload, &plen) != AT_SUCCESS) {
             continue;
         }
         if (opcode != AT_OPCODE_CASE_PACKET_PREPARE || status != AT_SUCCESS) {
@@ -177,8 +179,8 @@ bool ota_prepare(uint32_t *fw_size) {
     return false;
 }
 
-bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t *data_len,
-                    uint8_t *type) {
+bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t *data_len, uint8_t *type)
+{
     at_case_packet_read req;
     req.role.des = AT_CASE_ROLE_GLASS;
     req.role.src = AT_CASE_ROLE_CASE;
@@ -187,11 +189,10 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
 
     for (uint8_t i = 0U; i < OTA_EXCHANGE_RETRIES; i++) {
         hal_wwdgt_feed();
-        uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_READ,
-                                                (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
+        uint16_t tx_len = at_frame_pack_request(
+            ota_tx_buf, AT_OPCODE_CASE_PACKET_READ, (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
         hal_usart_send(ota_tx_buf, tx_len);
-        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS,
-                                        AT_OPCODE_CASE_PACKET_READ);
+        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS, AT_OPCODE_CASE_PACKET_READ);
         ota_dbg_last_rx_len = rx_len;
         ota_dbg_last_index = index;
         if (rx_len == 0U) {
@@ -256,7 +257,8 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
 /* Clear the OTA flag on both sides and let the state machine resume. A final
  * heartbeat with the flag cleared tells the glasses to leave OTA mode; the local
  * flag is dropped regardless of whether the glasses answers. */
-static void ota_finish(sm_ctx_t *ctx) {
+static void ota_finish(sm_ctx_t *ctx)
+{
     ota_active = false;
     ctx->ota_requested = false;
     /* Clear the reported version so sm_tick_charging/maintaining don't
@@ -267,7 +269,8 @@ static void ota_finish(sm_ctx_t *ctx) {
     (void)ota_heartbeat(ctx, false, NULL);
 }
 
-int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
+int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
+{
     hal_wwdgt_feed();
     if (progress_cb != NULL) {
         progress_cb(0U);
@@ -364,5 +367,5 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb) {
 
     hal_wwdgt_feed();
     NVIC_SystemReset();
-    return OTA_OK;  /* unreachable */
+    return OTA_OK; /* unreachable */
 }

@@ -4,9 +4,35 @@ Language: Cpp
 Standard: c++11
 
 IndentWidth: 4
-TabWidth: 4
-UseTab: Never
-ColumnLimit: 100
+ColumnLimit: 120
+IndentCaseLabels: true
 
-BreakBeforeBraces: Attach
-SortIncludes: CaseSensitive
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: false
+
+SortIncludes: false
+
+BreakBeforeBraces: Custom
+
+BraceWrapping:
+  AfterFunction: true
+  AfterEnum: true
+  AfterControlStatement: false
+  AfterStruct: true
+  AfterUnion: true
+  SplitEmptyFunction: false
+  BeforeElse: false
+  BeforeWhile: false
+
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2
+
+BreakBeforeBinaryOperators: All
+
+IndentPPDirectives: BeforeHash
+
+BinPackArguments: false
+BinPackParameters: false

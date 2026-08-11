@@ -3,7 +3,8 @@
 #include "gd32e23x.h"
 #include "hal_gpio.h"
 
-void pm_enter_deep_sleep(void) {
+void pm_enter_deep_sleep(void)
+{
     rcu_periph_clock_enable(RCU_PMU);
 
     /* Clear any pending EXTI flags before sleeping, so a stale edge does not
@@ -21,7 +22,8 @@ void pm_enter_deep_sleep(void) {
      * valid because Deep-Sleep preserves SRAM and registers. */
 }
 
-void pm_enter_standby(void) {
+void pm_enter_standby(void)
+{
     rcu_periph_clock_enable(RCU_PMU);
     hal_ship_control_set(true);
     pmu_to_standbymode();
@@ -29,7 +31,8 @@ void pm_enter_standby(void) {
 
 void pm_enter_ship_mode(void) { pm_enter_standby(); }
 
-bool pm_check_wakeup_reason(void) {
+bool pm_check_wakeup_reason(void)
+{
     rcu_periph_clock_enable(RCU_PMU);
     if (RESET != pmu_flag_get(PMU_FLAG_WAKEUP)) {
         pmu_flag_clear(PMU_FLAG_RESET_WAKEUP);

@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 /* AT command opcodes carried in the frame Opcode field (0x30xx band). */
-typedef enum {
+typedef enum
+{
     AT_OPCODE_CASE_HEART = 0x3001,
     AT_OPCODE_CASE_SHUTDOWN = 0x3002,
     AT_OPCODE_CASE_PACKET_PREPARE = 0x3003,

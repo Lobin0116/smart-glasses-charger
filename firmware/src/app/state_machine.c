@@ -15,31 +15,30 @@
 #include "power_mgmt.h"
 
 /* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
-#define SM_HANDSHAKE_5V_PULSE_MS 300U  /* 5V wake pulse length              */
-#define SM_HANDSHAKE_DISCHARGE_MS 100U /* bus bleed before UART             */
-#define SM_HANDSHAKE_HB_GAP_MS 100U    /* gap between heartbeat retries     */
-#define SM_HANDSHAKE_HB_RETRIES 3U     /* heartbeat attempts per handshake  */
-#define SM_HANDSHAKE_TIMEOUT_MS 30000U /* give up window before force charge */
+#define SM_HANDSHAKE_5V_PULSE_MS  300U               /* 5V wake pulse length              */
+#define SM_HANDSHAKE_DISCHARGE_MS 100U               /* bus bleed before UART             */
+#define SM_HANDSHAKE_HB_GAP_MS    100U               /* gap between heartbeat retries     */
+#define SM_HANDSHAKE_HB_RETRIES   3U                 /* heartbeat attempts per handshake  */
+#define SM_HANDSHAKE_TIMEOUT_MS   30000U             /* give up window before force charge */
 
-#define SM_MAINTAIN_HB_MS 1000U /* <1.2s keeps the glass present    */
+#define SM_MAINTAIN_HB_MS         1000U              /* <1.2s keeps the glass present    */
 
-#define SM_CHARGE_POLL_OPEN_MS 30000U   /* heartbeat period, lid open     */
-#define SM_CHARGE_POLL_CLOSED_MS 60000U /* heartbeat period, lid shut     */
+#define SM_CHARGE_POLL_OPEN_MS    30000U             /* heartbeat period, lid open     */
+#define SM_CHARGE_POLL_CLOSED_MS  60000U             /* heartbeat period, lid shut     */
 
-#define SM_FORCE_PROBE_GAP_MS (3U * 60U * 1000U) /* probe cadence        */
-#define SM_FORCE_TIMEOUT_MS (9U * 60U * 1000U)   /* total force window   */
+#define SM_FORCE_PROBE_GAP_MS     (3U * 60U * 1000U) /* probe cadence        */
+#define SM_FORCE_TIMEOUT_MS       (9U * 60U * 1000U) /* total force window   */
 
-#define SM_SHUTDOWN_GAP_MS 100U /* AT request/response deadline      */
-#define SM_SHUTDOWN_RETRIES 5U
+#define SM_SHUTDOWN_GAP_MS        100U               /* AT request/response deadline      */
+#define SM_SHUTDOWN_RETRIES       5U
 
-#define SM_LOW_SOC_PCT 15U /* charge vs maintain threshold       */
+#define SM_LOW_SOC_PCT            15U                /* charge vs maintain threshold       */
 
 /* One full handshake attempt covers the 5V pulse, the discharge, and the gaps
  * between retries (the final retry needs no trailing gap). Pacing sm_tick() at
  * this interval keeps attempts from piling up back-to-back. */
-#define SM_HANDSHAKE_ATTEMPT_GAP_MS                                                                \
-    (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS +                                        \
-     (SM_HANDSHAKE_HB_GAP_MS * (SM_HANDSHAKE_HB_RETRIES - 1U)))
+#define SM_HANDSHAKE_ATTEMPT_GAP_MS                                                                                    \
+    (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS + (SM_HANDSHAKE_HB_GAP_MS * (SM_HANDSHAKE_HB_RETRIES - 1U)))
 
 /* Timestamp of the last paced action within the current state. Reset on every
  * transition so each state paces its first action from its own entry. */
@@ -51,7 +50,8 @@ static volatile bool sm_lid_open_val;
 /* State to resume when OTA completes. */
 static sm_state_t sm_prev_state;
 
-static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next) {
+static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next)
+{
     if (next == ST_OTA) {
         sm_prev_state = ctx->state;
     }
@@ -64,7 +64,8 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next) {
 /* Hardware actions are implemented in charge_flow.c. */
 
 /* Low-battery path: before sleeping, tell the glasses to shut down. */
-static void sm_goto_idle(sm_ctx_t *ctx) {
+static void sm_goto_idle(sm_ctx_t *ctx)
+{
     if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
         sm_do_shutdown();
     }
@@ -72,7 +73,8 @@ static void sm_goto_idle(sm_ctx_t *ctx) {
     sm_enter_state(ctx, ST_IDLE);
 }
 
-static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
+{
     if (!hal_timer_expired(sm_last_action_ms, SM_HANDSHAKE_ATTEMPT_GAP_MS)) {
         return;
     }
@@ -94,7 +96,8 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now) {
     }
 }
 
-static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
+{
     /* Version mismatch with what the glasses holds → request OTA.
      * Skip when glasses hasn't reported a version (0) to avoid spurious trigger. */
     if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
@@ -127,7 +130,8 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now) {
     }
 }
 
-static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
+{
     if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
         ctx->ota_requested = true;
     }
@@ -152,7 +156,8 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now) {
     }
 }
 
-static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
+{
     /* After the 9-minute window, give up and go back to sleep. */
     if (hal_timer_expired(ctx->state_enter_ms, SM_FORCE_TIMEOUT_MS)) {
         sm_goto_idle(ctx);
@@ -170,7 +175,8 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now) {
     }
 }
 
-static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now)
+{
     /* Retry a bounded number of times; no reply is read as "already off" and we
      * proceed to sleep regardless. */
     if (ctx->retry_count >= SM_SHUTDOWN_RETRIES) {
@@ -186,7 +192,8 @@ static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now) {
     sm_do_shutdown();
 }
 
-static void sm_tick_ota(sm_ctx_t *ctx, uint32_t now) {
+static void sm_tick_ota(sm_ctx_t *ctx, uint32_t now)
+{
     (void)now;
     if (ctx->retry_count == 0U) {
         ctx->retry_count = 1U;
@@ -197,7 +204,8 @@ static void sm_tick_ota(sm_ctx_t *ctx, uint32_t now) {
     }
 }
 
-void sm_init(sm_ctx_t *ctx) {
+void sm_init(sm_ctx_t *ctx)
+{
     uint32_t now = hal_timer_get_ms();
 
     ctx->state = ST_IDLE;
@@ -218,7 +226,8 @@ void sm_init(sm_ctx_t *ctx) {
     sm_lid_event_pending = false;
 }
 
-void sm_tick(sm_ctx_t *ctx) {
+void sm_tick(sm_ctx_t *ctx)
+{
     uint32_t now = hal_timer_get_ms();
 
     /* Process deferred lid event from ISR (avoids g_led_ctx race). */
@@ -244,77 +253,80 @@ void sm_tick(sm_ctx_t *ctx) {
     }
 
     switch (ctx->state) {
-    case ST_IDLE:
+        case ST_IDLE:
 #ifdef HIL_TEST
-        break;
+            break;
 #else
-        pm_enter_deep_sleep();
-        break;
+            pm_enter_deep_sleep();
+            break;
 #endif
-    case ST_HANDSHAKING:
-        sm_tick_handshaking(ctx, now);
-        break;
-    case ST_CHARGING:
-        sm_tick_charging(ctx, now);
-        break;
-    case ST_MAINTAINING:
-        sm_tick_maintaining(ctx, now);
-        break;
-    case ST_FORCE_CHARGING:
-        sm_tick_force_charging(ctx, now);
-        break;
-    case ST_SHUTTING_DOWN:
-        sm_tick_shutting_down(ctx, now);
-        break;
-    case ST_OTA:
-        sm_tick_ota(ctx, now);
-        break;
-    case ST_SHIP_MODE:
-        /* Standby; only NRST can wake the part. No polling. */
-        break;
+        case ST_HANDSHAKING:
+            sm_tick_handshaking(ctx, now);
+            break;
+        case ST_CHARGING:
+            sm_tick_charging(ctx, now);
+            break;
+        case ST_MAINTAINING:
+            sm_tick_maintaining(ctx, now);
+            break;
+        case ST_FORCE_CHARGING:
+            sm_tick_force_charging(ctx, now);
+            break;
+        case ST_SHUTTING_DOWN:
+            sm_tick_shutting_down(ctx, now);
+            break;
+        case ST_OTA:
+            sm_tick_ota(ctx, now);
+            break;
+        case ST_SHIP_MODE:
+            /* Standby; only NRST can wake the part. No polling. */
+            break;
     }
 }
 
-void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line) {
+void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line)
+{
     (void)ctx;
     switch (exti_line) {
-    case HAL_EXTI_LINE_HALL:
-        sm_lid_open_val = hal_hall_get();
-        sm_lid_event_pending = true;
-        break;
-    case HAL_EXTI_LINE_KEY:
-        break;
-    default:
-        break;
+        case HAL_EXTI_LINE_HALL:
+            sm_lid_open_val = hal_hall_get();
+            sm_lid_event_pending = true;
+            break;
+        case HAL_EXTI_LINE_KEY:
+            break;
+        default:
+            break;
     }
 }
 
 #ifdef HIL_TEST
-void sm_inject_lid_event(bool lid_open) {
+void sm_inject_lid_event(bool lid_open)
+{
     sm_lid_open_val = lid_open;
     sm_lid_event_pending = true;
 }
 #endif
 
-const char *sm_state_name(sm_state_t state) {
+const char *sm_state_name(sm_state_t state)
+{
     switch (state) {
-    case ST_IDLE:
-        return "IDLE";
-    case ST_HANDSHAKING:
-        return "HANDSHAKING";
-    case ST_CHARGING:
-        return "CHARGING";
-    case ST_MAINTAINING:
-        return "MAINTAINING";
-    case ST_FORCE_CHARGING:
-        return "FORCE_CHARGING";
-    case ST_SHUTTING_DOWN:
-        return "SHUTTING_DOWN";
-    case ST_OTA:
-        return "OTA";
-    case ST_SHIP_MODE:
-        return "SHIP_MODE";
-    default:
-        return "UNKNOWN";
+        case ST_IDLE:
+            return "IDLE";
+        case ST_HANDSHAKING:
+            return "HANDSHAKING";
+        case ST_CHARGING:
+            return "CHARGING";
+        case ST_MAINTAINING:
+            return "MAINTAINING";
+        case ST_FORCE_CHARGING:
+            return "FORCE_CHARGING";
+        case ST_SHUTTING_DOWN:
+            return "SHUTTING_DOWN";
+        case ST_OTA:
+            return "OTA";
+        case ST_SHIP_MODE:
+            return "SHIP_MODE";
+        default:
+            return "UNKNOWN";
     }
 }

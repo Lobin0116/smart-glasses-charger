@@ -6,7 +6,8 @@
 
 #include "hal_timer.h"
 
-typedef enum {
+typedef enum
+{
     LED_EFFECT_NONE,
     LED_EFFECT_CASE_CHARGING_BREATH,
     LED_EFFECT_GLASS_CHARGING_BREATH,
@@ -15,7 +16,8 @@ typedef enum {
     LED_EFFECT_LOW_BATT_BLINK,
 } led_effect_id_t;
 
-typedef struct {
+typedef struct
+{
     led_effect_id_t current;
     led_effect_id_t overlay;
     uint32_t overlay_start_ms;

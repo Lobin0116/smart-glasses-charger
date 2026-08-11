@@ -4,9 +4,8 @@
 
 #include "gd32e23x.h"
 
-static const uint8_t wwdgt_psc_select[4] = {
-    WWDGT_CFG_PSC_DIV1, WWDGT_CFG_PSC_DIV2, WWDGT_CFG_PSC_DIV4, WWDGT_CFG_PSC_DIV8
-};
+static const uint8_t wwdgt_psc_select[4]
+    = {WWDGT_CFG_PSC_DIV1, WWDGT_CFG_PSC_DIV2, WWDGT_CFG_PSC_DIV4, WWDGT_CFG_PSC_DIV8};
 static const uint32_t wwdgt_psc_div[4] = {1U, 2U, 4U, 8U};
 
 #define WWDGT_RESET_VALUE 0x40U
@@ -16,7 +15,8 @@ static const uint32_t wwdgt_psc_div[4] = {1U, 2U, 4U, 8U};
 static uint8_t wwdgt_loaded_counter = WWDGT_MAX_COUNTER;
 static bool wwdgt_armed = false;
 
-void hal_wwdgt_init(uint32_t timeout_ms) {
+void hal_wwdgt_init(uint32_t timeout_ms)
+{
     if (timeout_ms == 0U) {
         timeout_ms = 1U;
     }
@@ -42,7 +42,8 @@ void hal_wwdgt_init(uint32_t timeout_ms) {
     wwdgt_armed = true;
 }
 
-void hal_wwdgt_feed(void) {
+void hal_wwdgt_feed(void)
+{
     if (wwdgt_armed) {
         wwdgt_counter_update(wwdgt_loaded_counter);
     }

@@ -42,7 +42,8 @@ uint16_t mock_usart_rx_idx = 0;
 uint8_t mock_usart_tx_ready = 1;
 uint8_t mock_usart_rx_ready = 0;
 
-void mock_reset(void) {
+void mock_reset(void)
+{
     mock_gpio_mode_set_calls = 0;
     mock_gpio_output_options_set_calls = 0;
     mock_gpio_af_set_calls = 0;
@@ -57,7 +58,8 @@ void mock_reset(void) {
     mock_usart_rx_ready = 0;
 }
 
-void mock_set_rx_data(const uint8_t *data, uint16_t len) {
+void mock_set_rx_data(const uint8_t *data, uint16_t len)
+{
     memcpy(mock_usart_rx_buf, data, len);
     mock_usart_rx_len = len;
     mock_usart_rx_idx = 0;

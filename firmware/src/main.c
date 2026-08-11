@@ -20,10 +20,10 @@
 #include "power_mgmt.h"
 #include "state_machine.h"
 #ifdef HIL_TEST
-#include "update_mode.h"
+    #include "update_mode.h"
 #endif
 
-#define SOC_REFRESH_MS 5000U
+#define SOC_REFRESH_MS   5000U
 #define EXTI_DEBOUNCE_MS 20U
 
 led_effect_ctx_t g_led_ctx;
@@ -37,33 +37,36 @@ static uint32_t last_soc_refresh;
 static volatile uint8_t exti_pending;
 static volatile uint32_t exti_last_trigger_ms[16];
 
-static void exti_callback(uint8_t line) {
+static void exti_callback(uint8_t line)
+{
     if (line < 16U) {
         exti_pending |= (uint8_t)(1U << line);
         exti_last_trigger_ms[line] = hal_timer_get_ms();
     }
 }
 
-static void process_exti_events(void) {
+static void process_exti_events(void)
+{
     if (exti_pending == 0U) {
         return;
     }
     uint32_t now = hal_timer_get_ms();
 
-    if ((exti_pending & (1U << HAL_EXTI_LINE_HALL)) &&
-        (now - exti_last_trigger_ms[HAL_EXTI_LINE_HALL] >= EXTI_DEBOUNCE_MS)) {
+    if ((exti_pending & (1U << HAL_EXTI_LINE_HALL))
+        && (now - exti_last_trigger_ms[HAL_EXTI_LINE_HALL] >= EXTI_DEBOUNCE_MS)) {
         exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_HALL);
         sm_handle_event(&sm, HAL_EXTI_LINE_HALL);
     }
 
-    if ((exti_pending & (1U << HAL_EXTI_LINE_KEY)) &&
-        (now - exti_last_trigger_ms[HAL_EXTI_LINE_KEY] >= EXTI_DEBOUNCE_MS)) {
+    if ((exti_pending & (1U << HAL_EXTI_LINE_KEY))
+        && (now - exti_last_trigger_ms[HAL_EXTI_LINE_KEY] >= EXTI_DEBOUNCE_MS)) {
         exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_KEY);
         button_on_press();
     }
 }
 
-static void refresh_case_status(void) {
+static void refresh_case_status(void)
+{
     uint8_t soc = cw2017_get_soc();
     sm.case_soc = soc;
 
@@ -76,7 +79,8 @@ static void refresh_case_status(void) {
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }
 
-void board_init(void) {
+void board_init(void)
+{
     hal_gpio_init();
     hal_timer_init();
     hal_i2c_init();
@@ -88,7 +92,8 @@ void board_init(void) {
     cw2017_init();
 }
 
-int main(void) {
+int main(void)
+{
     board_init();
     sm_init(&sm);
     led_effect_init(&g_led_ctx);

@@ -1,6 +1,7 @@
 #include "hal_gpio.h"
 
-typedef struct {
+typedef struct
+{
     uint32_t port;
     uint32_t pin;
 } hal_pin_map_t;
@@ -30,7 +31,8 @@ static const hal_pin_map_t pin_map[HAL_PIN_COUNT] = {
     [HAL_PIN_UART_RX] = {HAL_UART_RX_PORT, HAL_UART_RX_PIN},
 };
 
-void hal_gpio_init(void) {
+void hal_gpio_init(void)
+{
     /* GPIO ports live on the AHB clock domain. */
     rcu_periph_clock_enable(RCU_GPIOA);
     rcu_periph_clock_enable(RCU_GPIOB);
@@ -38,8 +40,7 @@ void hal_gpio_init(void) {
 
     /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on). */
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
     gpio_bit_set(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
 
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
@@ -47,14 +48,15 @@ void hal_gpio_init(void) {
     gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
 
     /* Control outputs: push-pull, 2MHz, initially low. */
-    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
-                  GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
-                      GPIO_PIN_15);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
-                                GPIO_PIN_15);
-    gpio_bit_reset(GPIOB, GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 |
-                              GPIO_PIN_15);
+    gpio_mode_set(GPIOB,
+                  GPIO_MODE_OUTPUT,
+                  GPIO_PUPD_NONE,
+                  GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+    gpio_output_options_set(GPIOB,
+                            GPIO_OTYPE_PP,
+                            GPIO_OSPEED_2MHZ,
+                            GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+    gpio_bit_reset(GPIOB, GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
 
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
@@ -73,7 +75,8 @@ void hal_gpio_init(void) {
     gpio_af_set(GPIOA, GPIO_AF_1, GPIO_PIN_9 | GPIO_PIN_10);
 }
 
-void hal_gpio_set(hal_pin_t pin, bool value) {
+void hal_gpio_set(hal_pin_t pin, bool value)
+{
     if (pin < HAL_PIN_COUNT) {
         if (value) {
             gpio_bit_set(pin_map[pin].port, pin_map[pin].pin);
@@ -83,14 +86,16 @@ void hal_gpio_set(hal_pin_t pin, bool value) {
     }
 }
 
-bool hal_gpio_get(hal_pin_t pin) {
+bool hal_gpio_get(hal_pin_t pin)
+{
     if (pin < HAL_PIN_COUNT) {
         return gpio_input_bit_get(pin_map[pin].port, pin_map[pin].pin) == SET;
     }
     return false;
 }
 
-void hal_gpio_toggle(hal_pin_t pin) {
+void hal_gpio_toggle(hal_pin_t pin)
+{
     if (pin < HAL_PIN_COUNT) {
         gpio_bit_toggle(pin_map[pin].port, pin_map[pin].pin);
     }
@@ -143,7 +148,8 @@ void hal_rpd_enable(void) { hal_gpio_set(HAL_PIN_RPD, true); }
 
 void hal_rpd_disable(void) { hal_gpio_set(HAL_PIN_RPD, false); }
 
-bool hal_key_pressed(void) {
+bool hal_key_pressed(void)
+{
     /* KEY is pulled up and reads low while pressed. */
     return !hal_gpio_get(HAL_PIN_KEY);
 }

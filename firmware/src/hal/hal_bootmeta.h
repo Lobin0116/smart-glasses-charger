@@ -13,21 +13,22 @@
  *   Meta1:      0x0800FC00                (page 63)
  */
 
-#define BOOT_META_MAGIC    0x4F544131U  /* "OTA1" */
-#define BOOT_META_ADDR_0   0x0800F800U  /* page 62 */
-#define BOOT_META_ADDR_1   0x0800FC00U  /* page 63 */
+#define BOOT_META_MAGIC   0x4F544131U /* "OTA1" */
+#define BOOT_META_ADDR_0  0x0800F800U /* page 62 */
+#define BOOT_META_ADDR_1  0x0800FC00U /* page 63 */
 
-#define BOOT_APP_BASE       0x08001000U
-#define BOOT_STAGING_BASE   0x08007C00U
-#define BOOT_STAGING_SIZE   0x00007C00U  /* 31 KB */
+#define BOOT_APP_BASE     0x08001000U
+#define BOOT_STAGING_BASE 0x08007C00U
+#define BOOT_STAGING_SIZE 0x00007C00U /* 31 KB */
 
 #pragma pack(push, 1)
-typedef struct {
+typedef struct
+{
     uint32_t magic;
-    uint32_t staged;       /* 0 = no pending fw, 1 = new firmware in Staging B */
-    uint32_t fw_size;      /* staged firmware size in bytes */
-    uint32_t seq;          /* monotonic counter; latest valid meta wins */
-    uint32_t crc32;        /* CRC32 over magic..fw_size (first 16 bytes) */
+    uint32_t staged;  /* 0 = no pending fw, 1 = new firmware in Staging B */
+    uint32_t fw_size; /* staged firmware size in bytes */
+    uint32_t seq;     /* monotonic counter; latest valid meta wins */
+    uint32_t crc32;   /* CRC32 over magic..fw_size (first 16 bytes) */
 } boot_meta_t;
 #pragma pack(pop)
 

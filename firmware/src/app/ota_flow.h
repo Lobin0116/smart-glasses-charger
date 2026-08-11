@@ -31,8 +31,7 @@ bool ota_prepare(uint32_t *fw_size);
  * data; the byte count and the packet type (see at_packet_type_e) are returned
  * through data_len and type. data must hold at least block_size bytes. Returns
  * true on success. */
-bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t *data_len,
-                    uint8_t *type);
+bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t *data_len, uint8_t *type);
 
 /* Run the full OTA exchange to completion: request, prepare, read every block
  * until the glasses report the end, then clear the OTA flag and return to

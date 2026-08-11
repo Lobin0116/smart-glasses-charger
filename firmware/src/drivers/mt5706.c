@@ -5,12 +5,14 @@ static bool mt5706_enabled;
 /* Set from the EXTI ISR and read/cleared by the main loop. */
 static volatile bool mt5706_event_pending;
 
-void mt5706_enable(void) {
+void mt5706_enable(void)
+{
     hal_chip_en2_enable();
     mt5706_enabled = true;
 }
 
-void mt5706_disable(void) {
+void mt5706_disable(void)
+{
     hal_chip_en2_disable();
     mt5706_enabled = false;
 }

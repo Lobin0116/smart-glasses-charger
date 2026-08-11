@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /* GD32E230xx FMC page size = 1 KB. See docs/OTA_UPGRADE_PLAN.md §3. */
-#define HAL_FLASH_PAGE_SIZE  0x400U
+#define HAL_FLASH_PAGE_SIZE 0x400U
 
 /* Unlock main flash for erase/program. Pair with hal_flash_lock().
  * Wraps SPL fmc_unlock(). */

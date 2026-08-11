@@ -5,7 +5,8 @@
 
 /* Roles on the POGO link. The first two payload bytes of every command carry
  * the destination and source role, selecting the data flow direction. */
-typedef enum {
+typedef enum
+{
     AT_CASE_ROLE_CASE = 0,
     AT_CASE_ROLE_GLASS = 1,
     AT_CASE_ROLE_MAGBAG = 2,
@@ -13,14 +14,16 @@ typedef enum {
 } at_case_role_e;
 
 /* Read/write action carried by control commands. */
-typedef enum {
+typedef enum
+{
     AT_RW_ACTION_R = 0,
     AT_RW_ACTION_W = 1,
     AT_RW_ACTION_COUNT,
 } at_rw_action_e;
 
 /* Position of a packet within an OTA transfer. */
-typedef enum {
+typedef enum
+{
     AT_PACKET_TYPE_MID = 0,
     AT_PACKET_TYPE_END = 1,
     AT_PACKET_TYPE_COUNT,
@@ -29,20 +32,23 @@ typedef enum {
 #pragma pack(push, 1)
 
 /* Routing prefix shared by every payload: destination then source role. */
-typedef struct {
+typedef struct
+{
     uint8_t des; /* destination, see at_case_role_e */
     uint8_t src; /* source, see at_case_role_e */
 } at_case_role;
 
 /* Heartbeat REQ payload (opcode 0x3001). */
-typedef struct {
+typedef struct
+{
     at_case_role role;
     uint8_t case_soc; /* bit7 = charging */
     uint8_t case_sta; /* bit0 = lid open, bit7 = OTA request */
 } at_case_data;
 
 /* Heartbeat RSP payload (opcode 0x3001). */
-typedef struct {
+typedef struct
+{
     at_case_role role;
     uint8_t glass_soc;    /* bit7 = full (0xE4 = charged) */
     uint8_t glass_sta;    /* bit7 = acknowledge */
@@ -50,20 +56,23 @@ typedef struct {
 } at_glass_data;
 
 /* OTA prepare RSP payload (opcode 0x3003). */
-typedef struct {
+typedef struct
+{
     at_case_role role;
     uint32_t size; /* total OTA image size in bytes */
 } at_case_packet_prepare;
 
 /* OTA data REQ payload (opcode 0x3004). */
-typedef struct {
+typedef struct
+{
     at_case_role role;
     uint16_t index; /* packet sequence number */
     uint16_t size;  /* packet payload size in bytes */
 } at_case_packet_read;
 
 /* OTA data RSP payload (opcode 0x3004). */
-typedef struct {
+typedef struct
+{
     at_case_role role;
     uint16_t index; /* packet sequence number */
     uint8_t type;   /* see at_packet_type_e */
@@ -73,7 +82,8 @@ typedef struct {
 #pragma pack(pop)
 
 /* Status codes exchanged in the response Status field. */
-typedef enum {
+typedef enum
+{
     AT_SUCCESS = 0x00,
     AT_ERR_IO = 0x01,
     AT_ERR_TIMEOUT = 0x02,

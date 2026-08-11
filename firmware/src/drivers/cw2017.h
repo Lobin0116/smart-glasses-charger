@@ -12,7 +12,8 @@
 /* Battery snapshot reported by cw2017_get_status. soc is the integer state of
  * charge (0-100), voltage_mv the cell terminal voltage, and temp_c the gauge's
  * thermistor reading in degrees Celsius. */
-typedef struct {
+typedef struct
+{
     uint8_t soc;
     uint16_t voltage_mv;
     int8_t temp_c;

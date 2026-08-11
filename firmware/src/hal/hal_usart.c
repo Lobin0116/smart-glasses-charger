@@ -6,14 +6,15 @@
 #include "hal_timer.h"
 #include "hal_usart.h"
 
-#define HAL_USART_BAUDRATE 115200U
-#define HAL_USART_RX_DMA_CH DMA_CH2
+#define HAL_USART_BAUDRATE    115200U
+#define HAL_USART_RX_DMA_CH   DMA_CH2
 #define HAL_USART_RX_BUF_SIZE 256U
 
 static volatile uint8_t rx_buf[HAL_USART_RX_BUF_SIZE];
 static uint16_t rx_tail;
 
-void hal_usart_init(void) {
+void hal_usart_init(void)
+{
     rcu_periph_clock_enable(RCU_USART0);
     rcu_periph_clock_enable(RCU_DMA);
 
@@ -50,11 +51,13 @@ void hal_usart_init(void) {
     hal_tr_switch_set(false);
 }
 
-static uint16_t rx_head_get(void) {
+static uint16_t rx_head_get(void)
+{
     return (uint16_t)(HAL_USART_RX_BUF_SIZE - dma_transfer_number_get(HAL_USART_RX_DMA_CH));
 }
 
-bool hal_usart_rx_get(uint8_t *c) {
+bool hal_usart_rx_get(uint8_t *c)
+{
     uint16_t head = rx_head_get();
     if (head == rx_tail) {
         return false;
@@ -64,7 +67,8 @@ bool hal_usart_rx_get(uint8_t *c) {
     return true;
 }
 
-bool hal_usart_rx_peek(uint8_t *c) {
+bool hal_usart_rx_peek(uint8_t *c)
+{
     uint16_t head = rx_head_get();
     if (head == rx_tail) {
         return false;
@@ -73,7 +77,8 @@ bool hal_usart_rx_peek(uint8_t *c) {
     return true;
 }
 
-bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n) {
+bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n)
+{
     if (buf == NULL || n == 0U) {
         return n == 0U;
     }
@@ -93,7 +98,8 @@ bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n) {
     return true;
 }
 
-uint16_t hal_usart_send(const uint8_t *data, uint16_t len) {
+uint16_t hal_usart_send(const uint8_t *data, uint16_t len)
+{
     if (data == NULL || len == 0U) {
         return 0U;
     }
@@ -113,7 +119,8 @@ uint16_t hal_usart_send(const uint8_t *data, uint16_t len) {
     return len;
 }
 
-uint16_t hal_usart_recv(uint8_t *buf, uint16_t maxlen, uint32_t timeout_ms) {
+uint16_t hal_usart_recv(uint8_t *buf, uint16_t maxlen, uint32_t timeout_ms)
+{
     if (buf == NULL || maxlen == 0U) {
         return 0U;
     }
@@ -132,8 +139,8 @@ uint16_t hal_usart_recv(uint8_t *buf, uint16_t maxlen, uint32_t timeout_ms) {
     return n;
 }
 
-uint16_t hal_usart_send_recv(const uint8_t *tx, uint16_t tx_len, uint8_t *rx, uint16_t rx_max,
-                             uint32_t timeout_ms) {
+uint16_t hal_usart_send_recv(const uint8_t *tx, uint16_t tx_len, uint8_t *rx, uint16_t rx_max, uint32_t timeout_ms)
+{
     (void)hal_usart_send(tx, tx_len);
     return hal_usart_recv(rx, rx_max, timeout_ms);
 }

@@ -4,7 +4,8 @@
 
 /* EXTI sources on this board. Each entry wires one GPIO pad to its EXTI line
  * and selects the trigger edge; the same table feeds both init and dispatch. */
-typedef struct {
+typedef struct
+{
     uint8_t port;             /* EXTI_SOURCE_GPIOx for SYSCFG routing */
     uint8_t pin;              /* EXTI_SOURCE_PINx for SYSCFG routing  */
     uint8_t line;             /* EXTI line number 0..15 (callback arg) */
@@ -29,7 +30,8 @@ static hal_exti_callback_t exti_callback;
 
 static exti_line_enum hal_exti_mask(uint8_t line) { return (exti_line_enum)BIT(line); }
 
-void hal_exti_init(void) {
+void hal_exti_init(void)
+{
     /* SYSCFG gates the registers that route GPIO pads onto EXTI lines. */
     rcu_periph_clock_enable(RCU_CFGCMP);
 
@@ -54,7 +56,8 @@ void hal_exti_register_callback(hal_exti_callback_t cb) { exti_callback = cb; }
 
 /* Serve one EXTI line from inside an ISR: clear the pending flag if the edge
  * fired and forward the line number to the registered callback. */
-static void hal_exti_dispatch(uint8_t line) {
+static void hal_exti_dispatch(uint8_t line)
+{
     exti_line_enum mask = hal_exti_mask(line);
     if (SET == exti_interrupt_flag_get(mask)) {
         exti_interrupt_flag_clear(mask);
@@ -66,7 +69,8 @@ static void hal_exti_dispatch(uint8_t line) {
 
 void EXTI2_3_IRQHandler(void) { hal_exti_dispatch(HAL_EXTI_LINE_KEY); }
 
-void EXTI4_15_IRQHandler(void) {
+void EXTI4_15_IRQHandler(void)
+{
     hal_exti_dispatch(HAL_EXTI_LINE_HALL);
     hal_exti_dispatch(HAL_EXTI_LINE_BAT_INT);
     hal_exti_dispatch(HAL_EXTI_LINE_CHARGER_INT);

@@ -19,7 +19,8 @@ static uint32_t int_high_since;
 /* Block until INT has been high for the full settle window, or report the chip
  * as unreachable when INT is low. Within one sustained high period the delay
  * shrinks to the remaining time, so a burst of reads only pays the 100ms once. */
-static bool ip5353_ensure_ready(void) {
+static bool ip5353_ensure_ready(void)
+{
     if (!hal_charger_int_get()) {
         int_armed = false;
         return false;
@@ -36,7 +37,8 @@ static bool ip5353_ensure_ready(void) {
 }
 
 /* Read one register byte, gated by the INT settle window. */
-static int ip5353_read_byte(uint8_t addr7, uint8_t reg, uint8_t *out) {
+static int ip5353_read_byte(uint8_t addr7, uint8_t reg, uint8_t *out)
+{
     if (!ip5353_ensure_ready()) {
         return -1;
     }
@@ -44,14 +46,16 @@ static int ip5353_read_byte(uint8_t addr7, uint8_t reg, uint8_t *out) {
 }
 
 /* Write one register byte, gated by the INT settle window. */
-static int ip5353_write_byte(uint8_t addr7, uint8_t reg, uint8_t val) {
+static int ip5353_write_byte(uint8_t addr7, uint8_t reg, uint8_t val)
+{
     if (!ip5353_ensure_ready()) {
         return -1;
     }
     return hal_i2c_write_reg(addr7, reg, &val, 1U);
 }
 
-int ip5353_read_sys_state0(ip5353_sys_state0_t *state) {
+int ip5353_read_sys_state0(ip5353_sys_state0_t *state)
+{
     if (state == NULL) {
         return -1;
     }
@@ -61,7 +65,8 @@ int ip5353_read_sys_state0(ip5353_sys_state0_t *state) {
     }
     /* Overlay the raw byte onto the bitfield struct. arm-none-eabi-gcc packs
      * bit fields LSB-first, matching the IP5353's little-endian register map. */
-    union {
+    union
+    {
         uint8_t raw;
         ip5353_sys_state0_t bits;
     } conv;
@@ -70,7 +75,8 @@ int ip5353_read_sys_state0(ip5353_sys_state0_t *state) {
     return 0;
 }
 
-int ip5353_read_sys_state2(ip5353_sys_state2_t *state) {
+int ip5353_read_sys_state2(ip5353_sys_state2_t *state)
+{
     if (state == NULL) {
         return -1;
     }
@@ -78,7 +84,8 @@ int ip5353_read_sys_state2(ip5353_sys_state2_t *state) {
     if (ip5353_read_byte(IP5353_ADDR_STATUS, IP5353_REG_SYS_STATE2, &raw) != 0) {
         return -1;
     }
-    union {
+    union
+    {
         uint8_t raw;
         ip5353_sys_state2_t bits;
     } conv;
@@ -87,7 +94,8 @@ int ip5353_read_sys_state2(ip5353_sys_state2_t *state) {
     return 0;
 }
 
-int ip5353_read_chg_state(uint8_t *chg_state) {
+int ip5353_read_chg_state(uint8_t *chg_state)
+{
     if (chg_state == NULL) {
         return -1;
     }
@@ -99,7 +107,8 @@ int ip5353_read_chg_state(uint8_t *chg_state) {
     return 0;
 }
 
-int ip5353_read_modify_write(uint8_t addr7, uint8_t reg, uint8_t mask, uint8_t val) {
+int ip5353_read_modify_write(uint8_t addr7, uint8_t reg, uint8_t mask, uint8_t val)
+{
     uint8_t raw;
     if (ip5353_read_byte(addr7, reg, &raw) != 0) {
         return -1;
@@ -108,7 +117,8 @@ int ip5353_read_modify_write(uint8_t addr7, uint8_t reg, uint8_t mask, uint8_t v
     return ip5353_write_byte(addr7, reg, updated);
 }
 
-bool ip5353_is_charging(void) {
+bool ip5353_is_charging(void)
+{
     uint8_t chg_state;
     if (ip5353_read_chg_state(&chg_state) != 0) {
         return false;
@@ -116,7 +126,8 @@ bool ip5353_is_charging(void) {
     return chg_state == IP5353_CHG_STATE_CC || chg_state == IP5353_CHG_STATE_CV;
 }
 
-bool ip5353_is_input_valid(void) {
+bool ip5353_is_input_valid(void)
+{
     ip5353_sys_state0_t state;
     if (ip5353_read_sys_state0(&state) != 0) {
         return false;
@@ -124,7 +135,8 @@ bool ip5353_is_input_valid(void) {
     return state.vinok || state.vbusok;
 }
 
-bool ip5353_is_full(void) {
+bool ip5353_is_full(void)
+{
     uint8_t chg_state;
     if (ip5353_read_chg_state(&chg_state) != 0) {
         return false;

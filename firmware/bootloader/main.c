@@ -7,21 +7,23 @@
 #include "hal_bootmeta.h"
 #include "hal_flash.h"
 
-#define BL_PAGE_SIZE  HAL_FLASH_PAGE_SIZE
+#define BL_PAGE_SIZE HAL_FLASH_PAGE_SIZE
 
-static void jump_to_app(void) {
+static void jump_to_app(void)
+{
     uint32_t app_base = BOOT_APP_BASE;
     uint32_t sp = *(volatile uint32_t *)app_base;
     uint32_t reset = *(volatile uint32_t *)(app_base + 4U);
     SCB->VTOR = app_base;
     __set_MSP(sp);
-    __enable_irq();  /* App's startup doesn't re-enable IRQ */
+    __enable_irq(); /* App's startup doesn't re-enable IRQ */
     ((void (*)(void))reset)();
     while (1) {
     }
 }
 
-static bool copy_staging_to_app(uint32_t fw_size) {
+static bool copy_staging_to_app(uint32_t fw_size)
+{
     uint32_t pages = (fw_size + BL_PAGE_SIZE - 1U) / BL_PAGE_SIZE;
     hal_flash_unlock();
     for (uint32_t p = 0U; p < pages; p++) {
@@ -47,7 +49,8 @@ static bool copy_staging_to_app(uint32_t fw_size) {
     return true;
 }
 
-int main(void) {
+int main(void)
+{
     bool staged = false;
     uint32_t fw_size = 0U;
     (void)hal_bootmeta_read_staged(&staged, &fw_size);
