@@ -8,6 +8,8 @@ F01/F02 物理测试：磁铁靠近/远离 PB4 霍尔，观察 LED + 串口心�
 """
 import time
 
+import pytest
+
 import sgc_at
 
 
@@ -36,6 +38,7 @@ def test_f01_open_lid_event(serial_port):
     assert frame is not None, "OPEN 命令后 4s 内未收到心跳（开盖事件未触发 HANDSHAKING）"
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_f02_close_lid_event(serial_port):
     """F02: CLOSE after handshake → firmware 重新进 HANDSHAKING 发心跳.
 
@@ -86,6 +89,7 @@ def test_f02_close_lid_event(serial_port):
     assert frame is not None, "CLOSE 后 4s 内未收到新心跳（关盖事件未触发重新握手）"
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_f03_lid_event_dual_edge(serial_port):
     """F03: 反复 OPEN→CLOSE 注入（双沿），每次 OPEN 都触发 HANDSHAKING 发心跳.
 

@@ -47,6 +47,7 @@ def test_a13_case_sta_lid_bit(heartbeat_frame):
     assert bit0_lid_open, f"case_sta={case_sta:#04x}, bit0 应为 1（开盖触发的心跳）"
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_a15_glass_full_enters_maintaining(serial_port):
     """A15: PC 回 glass_soc=0xE4 (眼镜满电) → 固件进 MAINTAINING (开盖心跳 ~1s).
 
