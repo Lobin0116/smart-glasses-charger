@@ -4,6 +4,7 @@
 前置：人工触发开盖（磁铁碰霍尔），固件进 HANDSHAKING 后会发心跳请求帧。
 """
 import struct
+import time
 import pytest
 import sgc_at
 
@@ -46,18 +47,53 @@ def test_a13_case_sta_lid_bit(heartbeat_frame):
     assert bit0_lid_open, f"case_sta={case_sta:#04x}, bit0 应为 1（开盖触发的心跳）"
 
 
-def test_a15_send_response_accepted(serial_port, heartbeat_frame):
-    parsed = sgc_at.parse_frame(heartbeat_frame)
-    case_soc = parsed["payload"][2]
-    glass_soc = (case_soc & 0x7F) | 0x80
-    glass_sta = 0x00
-    case_version = sgc_at.CASE_FW_VERSION
+def test_a15_glass_full_enters_maintaining(serial_port):
+    """A15: PC 回 glass_soc=0xE4 (眼镜满电) → 固件进 MAINTAINING (开盖心跳 ~1s).
+
+    按矩阵 A15: glass_soc bit7=1 (0xE4=满电) → "眼镜满电"分支.
+    开盖 → MAINTAINING (心跳 1s); 关盖 → SHUTTING_DOWN (C07 覆盖).
+
+    通过心跳间隔判断状态:
+      ~200ms = 还在 retry (握手没成功)
+      ~1000ms = MAINTAINING ✓
+      ~30000ms = CHARGING (没识别 bit7=1)
+    """
+    serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
+    sgc_at.send_command(serial_port, "RESET")
+    time.sleep(0.5)
+    serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
+    sgc_at.send_command(serial_port, "OPEN")
+
+    # 持续发满电响应, 直到收到两个连续心跳测间隔.
+    # 类似 _enter_charging 的写法: 多次发响应覆盖固件 retry 窗口.
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=glass_soc, glass_sta=glass_sta, case_version=case_version
+        glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
     )
-    serial_port.write(response)
-    next_frame = sgc_at.recv_request(serial_port, timeout=3.0)
-    assert next_frame is not None, "发合法响应后应在 ~30s 内（开盖充电周期）收到下一个心跳，但超时"
+
+    serial_port.timeout = 0.1
+    last = time.time()
+    deadline = time.time() + 8.0
+    interval_ms = 0.0
+    while time.time() < deadline:
+        serial_port.write(response)
+        f = sgc_at.recv_request(serial_port, timeout=2.0)
+        if f is None:
+            continue
+        gap_ms = (time.time() - last) * 1000
+        if gap_ms > 500:
+            # 上一帧到这帧间隔 > 500ms, 说明已离开 retry (~200ms) 进稳定状态.
+            interval_ms = gap_ms
+            break
+        last = time.time()
+    serial_port.timeout = 2.0
+
+    assert interval_ms > 0, "8s 内未观察到 > 500ms 的心跳间隔 (固件一直在 retry)"
+    assert interval_ms < 2000, (
+        f"间隔 {interval_ms:.0f}ms > 2000ms, 超出 MAINTAINING 1s 周期. "
+        f"可能进了 CHARGING (没识别 glass_soc bit7=1 满电语义)."
+    )
 
 
 def test_a05_crc_range(heartbeat_frame):
