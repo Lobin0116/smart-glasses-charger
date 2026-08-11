@@ -1,0 +1,6 @@
+# Commits that reformat code without changing logic.
+# Use with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# Each line is a full or abbreviated commit hash.
+
+# style: apply clang-format (Allman braces, case-indent, 120 col)
+7beac4e
