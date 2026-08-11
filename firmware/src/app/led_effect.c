@@ -39,7 +39,7 @@ static led_effect_id_t resolve_effect(led_effect_ctx_t *ctx) {
     if (ctx->case_full && ctx->glass_full) {
         return LED_EFFECT_FULL_SOLID;
     }
-    if (ctx->case_soc < 5U) {
+    if (ctx->case_soc <= 5U) {
         return LED_EFFECT_LOW_BATT_BLINK;
     }
     if (ctx->glass_charging) {

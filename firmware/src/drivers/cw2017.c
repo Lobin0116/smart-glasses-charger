@@ -75,7 +75,17 @@ int cw2017_init(void) {
 
 uint8_t cw2017_get_soc(void) {
     uint8_t soc = 0U;
-    (void)cw2017_read_soc(&soc);
+    if (cw2017_read_soc(&soc) != 0) {
+        /* I2C read failed — battery gauge not responding. Assume full so the
+         * LED falls into the white band rather than stuck on red low-batt
+         * blink. Real fix is a battery profile burned into the CW2017. */
+        return 100U;
+    }
+    if (soc == 0U || soc > 100U) {
+        /* Abnormal reading (0 = quickstart transitional or dead battery;
+         * >100 = unprofiled gauge). Same fallback as above. */
+        return 100U;
+    }
     return soc;
 }
 

@@ -75,7 +75,7 @@ void lid_no_glass_display(uint8_t case_soc) {
         led_set(LED_RED, LED_BLINK);
         return;
     }
-    if (case_soc <= 15U) {
+    if (case_soc < 15U) {
         color = LED_RED;
     } else if (case_soc <= 40U) {
         color = LED_GREEN;

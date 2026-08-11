@@ -16,6 +16,20 @@ OPCODE_CASE_SHUTDOWN = 0x3002
 OPCODE_CASE_PACKET_PREPARE = 0x3003
 OPCODE_CASE_PACKET_READ = 0x3004
 
+# HIL test opcodes (firmware at_opcode.h AT_OPCODE_HIL_*). Same frame format
+# as production opcodes; firmware update_mode_poll dispatches these.
+OPCODE_HIL_RESET = 0x3010
+OPCODE_HIL_OPEN = 0x3011
+OPCODE_HIL_CLOSE = 0x3012
+OPCODE_HIL_KEY = 0x3013
+OPCODE_HIL_STATUS = 0x3014
+OPCODE_HIL_SCAN = 0x3015
+OPCODE_HIL_OTA = 0x3016
+
+# HIL STATUS ACK payload (must match firmware hil_status_payload_t, 17 bytes).
+# All multi-byte fields big-endian.
+HIL_STATUS_FMT = ">BBBBBBBBBBBBBBBBB"
+
 AT_SUCCESS = 0x00
 
 ROLE_CASE = 0
@@ -128,33 +142,52 @@ _recv_buf = bytearray()
 _MAGIC_REQ_BYTES = struct.pack(">I", MAGIC_REQ)
 
 
-def recv_request(ser, timeout: float = 5.0) -> bytes:
-    """Read bytes from serial until a complete, CRC-valid request frame is found.
-    Skips over mis-aligned magic hits whose size field happens to look valid
-    but whose CRC fails (avoids garbage frames bleeding into tests)."""
-    end_time = time.time() + timeout
-    while time.time() < end_time:
-        idx = _recv_buf.find(_MAGIC_REQ_BYTES)
-        while idx >= 0:
-            if len(_recv_buf) - idx >= 7:
+def recv_request(ser, timeout: float = 5.0, magic: int = MAGIC_REQ) -> bytes:
+    """Read bytes from serial until a complete, CRC-valid frame is found.
+    Pass magic=MAGIC_RSP to receive response frames (HIL ACKs)."""
+    old_timeout = ser.timeout
+    ser.timeout = 0.1  # short poll so the end_time check actually runs
+    magic_bytes = struct.pack(">I", magic)
+    try:
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            idx = _recv_buf.find(magic_bytes)
+            while idx >= 0:
+                if len(_recv_buf) - idx < 7:
+                    break  # header not complete yet — wait, do NOT drop magic
                 size = struct.unpack_from(">H", _recv_buf, idx + 5)[0]
-                if size >= HEADER_SIZE and len(_recv_buf) - idx >= size:
-                    frame = bytes(_recv_buf[idx:idx + size])
-                    try:
-                        parse_frame(frame)
-                        del _recv_buf[:idx + size]
-                        return frame
-                    except ValueError:
-                        # CRC/magic mismatch — not a real frame, keep scanning
-                        del _recv_buf[:idx + 4]
-                        idx = _recv_buf.find(_MAGIC_REQ_BYTES)
-                        continue
-            del _recv_buf[:idx + 4]
-            idx = _recv_buf.find(_MAGIC_REQ_BYTES)
-        chunk = ser.read(64)
-        if chunk:
-            _recv_buf.extend(chunk)
-    return None
+                if size < HEADER_SIZE:
+                    # Bogus size field — drop the magic lead and re-hunt.
+                    del _recv_buf[:idx + 4]
+                    idx = _recv_buf.find(magic_bytes)
+                    continue
+                if len(_recv_buf) - idx < size:
+                    break  # frame not complete yet — wait, do NOT drop magic
+                frame = bytes(_recv_buf[idx:idx + size])
+                try:
+                    parse_frame(frame)
+                    del _recv_buf[:idx + size]
+                    return frame
+                except ValueError:
+                    # CRC/magic mismatch — not a real frame, drop lead and re-hunt.
+                    del _recv_buf[:idx + 4]
+                    idx = _recv_buf.find(magic_bytes)
+                    continue
+            # Read whatever has already arrived (don't block waiting for 64 bytes
+            # that may never come). When the OS buffer is empty, read(1) blocks
+            # on the next byte arrival bounded by the 0.1s timeout set above.
+            in_wait = ser.in_waiting
+            chunk = ser.read(in_wait if in_wait > 0 else 1)
+            if chunk:
+                _recv_buf.extend(chunk)
+        return None
+    finally:
+        ser.timeout = old_timeout
+
+
+def recv_response(ser, timeout: float = 5.0) -> bytes:
+    """Alias for recv_request with magic=MAGIC_RSP (HIL ACK frames)."""
+    return recv_request(ser, timeout=timeout, magic=MAGIC_RSP)
 
 
 def reset_recv_buffer() -> None:
@@ -162,6 +195,66 @@ def reset_recv_buffer() -> None:
     _recv_buf.clear()
 
 
-def send_command(ser, cmd: str) -> None:
-    ser.write(cmd.encode("ascii") + b"\n")
-    ser.flush()
+def pack_hil_command(opcode: int) -> bytes:
+    """Pack a HIL REQ frame. Payload is the 2-byte role prefix matching the
+    production at_case_role layout (des=GLASS, src=CASE)."""
+    return pack_request(opcode, bytes([ROLE_GLASS, ROLE_CASE]))
+
+
+def send_hil_command(ser, opcode: int, timeout: float = 5.0, retries: int = 5):
+    """Send a HIL command and wait for its ACK (same opcode, RSP magic).
+    Returns the parsed ACK payload bytes, or None on timeout. Default timeout
+    is 5s so a command that lands while firmware is mid-handshake (which
+    blocks update_mode_poll ~1.5s per attempt) still gets its ACK during a
+    handshake gap — a 2s timeout straddles the gap edge and times out."""
+    for _ in range(retries):
+        ser.write(pack_hil_command(opcode))
+        ser.flush()
+        end = time.time() + timeout
+        while time.time() < end:
+            f = recv_response(ser, timeout=1.0)
+            if f is None:
+                continue
+            try:
+                p = parse_frame(f)
+            except ValueError:
+                continue
+            if p["opcode"] == opcode and p["status"] == AT_SUCCESS:
+                return p["payload"]
+    return None
+
+
+def parse_hil_status(payload: bytes) -> dict:
+    """Unpack HIL STATUS ACK payload (17 bytes packed)."""
+    f = struct.unpack(HIL_STATUS_FMT, payload[:17])
+    return {
+        "ver": f[0], "soc_reg": f[1], "cfg": f[2],
+        "sysclk_mhz": f[3], "ahb_mhz": f[4], "apb1_mhz": f[5],
+        "case_soc": f[6], "state": f[7],
+        "ota_index": (f[8] << 8) | f[9],
+        "ota_rxlen": (f[10] << 8) | f[11],
+        "ota_fails": (f[12] << 8) | f[13],
+        "ota_fail_reason": f[14],
+        "ota_succ_len": (f[15] << 8) | f[16],
+    }
+
+
+_HIL_CMD_OPCODES = {
+    "RESET": OPCODE_HIL_RESET,
+    "OPEN": OPCODE_HIL_OPEN,
+    "CLOSE": OPCODE_HIL_CLOSE,
+    "KEY": OPCODE_HIL_KEY,
+    "OTA": OPCODE_HIL_OTA,
+}
+
+
+def send_command(ser, cmd: str):
+    """Send a HIL command and wait for ACK. Confirms firmware's update_mode_poll
+    actually processed the command (e.g. RESET → IDLE) before the caller
+    continues — fire-and-forget left the caller blind to whether firmware was
+    mid-force_charge_probe (1.5s blocking) and never serviced the command,
+    which is how OPEN ended up landing in FORCE_CHARGING where it's a no-op."""
+    opcode = _HIL_CMD_OPCODES.get(cmd.upper())
+    if opcode is None:
+        raise ValueError(f"unknown HIL command: {cmd!r}")
+    return send_hil_command(ser, opcode)

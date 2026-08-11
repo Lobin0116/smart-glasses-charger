@@ -73,6 +73,26 @@ bool hal_usart_rx_peek(uint8_t *c) {
     return true;
 }
 
+bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n) {
+    if (buf == NULL || n == 0U) {
+        return n == 0U;
+    }
+    uint16_t head = rx_head_get();
+    uint16_t available;
+    if (head >= rx_tail) {
+        available = (uint16_t)(head - rx_tail);
+    } else {
+        available = (uint16_t)(HAL_USART_RX_BUF_SIZE - rx_tail + head);
+    }
+    if (available < n) {
+        return false;
+    }
+    for (uint16_t i = 0U; i < n; i++) {
+        buf[i] = rx_buf[(uint16_t)((rx_tail + i) % HAL_USART_RX_BUF_SIZE)];
+    }
+    return true;
+}
+
 uint16_t hal_usart_send(const uint8_t *data, uint16_t len) {
     if (data == NULL || len == 0U) {
         return 0U;

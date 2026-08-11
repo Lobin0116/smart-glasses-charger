@@ -20,8 +20,7 @@ def test_e01_key_command_triggers_button_press(serial_port):
     sgc_at.send_command(serial_port, "RESET")
     time.sleep(0.5)
     serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
 
-    sgc_at.send_command(serial_port, "KEY")
-    time.sleep(0.3)
-    reply = serial_port.read(64)
-    assert b"OK_KEY" in reply, f"KEY 命令未回 OK_KEY，实际: {reply!r}"
+    ack = sgc_at.send_command(serial_port, "KEY")
+    assert ack is not None, "KEY 命令未收到 HIL ACK"

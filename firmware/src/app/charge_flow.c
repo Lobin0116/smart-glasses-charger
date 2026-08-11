@@ -35,7 +35,8 @@ static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply) {
     uint16_t frame_len = at_frame_pack_request(buf, AT_OPCODE_CASE_HEART, (uint8_t *)&payload,
                                                sizeof(payload), 0x00);
 
-    uint16_t rsp_len = hal_usart_send_recv(buf, frame_len, rsp, sizeof(rsp), COMM_TIMEOUT_MS);
+    hal_usart_send(buf, frame_len);
+    uint16_t rsp_len = at_frame_recv(rsp, sizeof(rsp), COMM_TIMEOUT_MS, AT_OPCODE_CASE_HEART);
     if (rsp_len == 0U) {
         return false;
     }
@@ -119,6 +120,7 @@ bool sm_do_shutdown(void) {
     uint16_t frame_len =
         at_frame_pack_request(buf, AT_OPCODE_CASE_SHUTDOWN, (uint8_t *)&role, sizeof(role), 0x00);
 
-    uint16_t rsp_len = hal_usart_send_recv(buf, frame_len, rsp, sizeof(rsp), COMM_TIMEOUT_MS);
+    hal_usart_send(buf, frame_len);
+    uint16_t rsp_len = at_frame_recv(rsp, sizeof(rsp), COMM_TIMEOUT_MS, AT_OPCODE_CASE_SHUTDOWN);
     return rsp_len > 0U;
 }

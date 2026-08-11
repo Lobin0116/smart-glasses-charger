@@ -90,8 +90,8 @@ static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed) {
 
     uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_HEART, (const uint8_t *)&req,
                                             (uint8_t)sizeof(req), 0U);
-    uint16_t rx_len =
-        hal_usart_send_recv(ota_tx_buf, tx_len, ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS);
+    hal_usart_send(ota_tx_buf, tx_len);
+    uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS, AT_OPCODE_CASE_HEART);
     if (rx_len == 0U) {
         return false;
     }
@@ -146,8 +146,9 @@ bool ota_prepare(uint32_t *fw_size) {
         hal_wwdgt_feed();
         uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_PREPARE,
                                                 (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
-        uint16_t rx_len =
-            hal_usart_send_recv(ota_tx_buf, tx_len, ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS);
+        hal_usart_send(ota_tx_buf, tx_len);
+        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS,
+                                        AT_OPCODE_CASE_PACKET_PREPARE);
         if (rx_len == 0U) {
             continue;
         }
@@ -188,13 +189,9 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
         hal_wwdgt_feed();
         uint16_t tx_len = at_frame_pack_request(ota_tx_buf, AT_OPCODE_CASE_PACKET_READ,
                                                 (const uint8_t *)&req, (uint8_t)sizeof(req), 0U);
-        /* Cap maxlen at exactly one expected RSP frame so hal_usart_recv
-         * doesn't read into the NEXT frame's bytes if multiple RSPs are
-         * queued in the DMA buffer (e.g., host sent ahead due to retries). */
-        uint16_t expected_rx = (uint16_t)(AT_FRAME_HEADER_SIZE +
-                                          offsetof(at_case_packet_transfer, data) + block_size);
-        uint16_t rx_len =
-            hal_usart_send_recv(ota_tx_buf, tx_len, ota_rx_buf, expected_rx, OTA_TIMEOUT_MS);
+        hal_usart_send(ota_tx_buf, tx_len);
+        uint16_t rx_len = at_frame_recv(ota_rx_buf, OTA_BUF_SIZE, OTA_TIMEOUT_MS,
+                                        AT_OPCODE_CASE_PACKET_READ);
         ota_dbg_last_rx_len = rx_len;
         ota_dbg_last_index = index;
         if (rx_len == 0U) {
@@ -262,6 +259,11 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
 static void ota_finish(sm_ctx_t *ctx) {
     ota_active = false;
     ctx->ota_requested = false;
+    /* Clear the reported version so sm_tick_charging/maintaining don't
+     * immediately re-trigger OTA via the version-mismatch path and loop
+     * forever after a failed transfer. The next heartbeat that reports a
+     * mismatched version will set it again. */
+    ctx->reported_case_version = 0U;
     (void)ota_heartbeat(ctx, false, NULL);
 }
 

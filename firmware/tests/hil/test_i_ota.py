@@ -23,22 +23,18 @@ def _flush_rx(serial_port):
 def _enter_charging(serial_port):
     """RESET+OPEN → heartbeat → reply → wait for next heartbeat confirming
     firmware left HANDSHAKING (interval > 500ms = MAINTAINING 1s or CHARGING 30s).
-    Keeps replying so retries see a response.
-
-    Returns only after firmware's last MAINTAINING heartbeat recv window has
-    closed. Otherwise the OTA command we write next lands in firmware's
-    sm_send_heartbeat recv buffer and gets swallowed as a (malformed) response."""
+    Keeps replying so retries see a response."""
     import time as _t
     _flush_rx(serial_port)
     sgc_at.send_command(serial_port, "RESET")
-    time.sleep(0.5)
+    time.sleep(2.0)  # fixture open resets firmware via DTR edge; wait for v10 boot
     _flush_rx(serial_port)
     sgc_at.send_command(serial_port, "OPEN")
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
     assert frame is not None, "OPEN 后 5s 未收到心跳"
 
     response = sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=0x01
+        glass_soc=0x20, glass_sta=0x00, case_version=0
     )
     last = _t.time()
     deadline = _t.time() + 6.0
@@ -85,27 +81,14 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
     and ota_run bails out OTA_ERR_PREPARE (no real staging write).
     """
     _enter_charging(serial_port)
-    # Send OTA and read exactly the 7-byte ASCII ACK (OK_OTA\n). Retry up to
-    # 3 times because a single OTA can be swallowed if the firmware is mid-
-    # handshake when we send it: hal_usart_recv consumes the OTA bytes as a
-    # (malformed) heartbeat response. A retry lands once the firmware is back
-    # in its main loop.
-    serial_port.timeout = 0.5
-    raw = b""
-    for _ in range(3):
-        sgc_at.send_command(serial_port, "OTA")
-        raw = serial_port.read(7)
-        if raw == b"OK_OTA\n":
-            break
-        # Drain anything else firmware sent (e.g. heartbeat REQs) before retry.
-        _flush_rx(serial_port)
-        time.sleep(0.2)
-    # Use a short port timeout for the request loops below so ser.read(64)
-    # inside recv_request returns promptly when bytes are available instead of
-    # blocking up to 2s waiting to fill 64 bytes — that delay would miss the
-    # firmware's 100ms heartbeat recv window.
+    # OTA command is now a HIL protocol frame (opcode 0x3016). send_command
+    # waits for the ACK — at_frame_recv's expected_opcode filter keeps
+    # charge_poll from swallowing it, so no retry loop needed.
+    ack = sgc_at.send_command(serial_port, "OTA")
+    assert ack is not None, "OTA 命令未收到 HIL ACK"
+    # Short port timeout for the request loops below so ser.read() inside
+    # recv_request returns promptly when bytes arrive.
     serial_port.timeout = 0.1
-    assert raw == b"OK_OTA\n", f"OTA 命令未回 OK_OTA\\n（重试3次），raw={raw!r}"
 
     # Wait for case heartbeat with case_sta bit7 (OTA request).
     end = time.time() + 5.0
@@ -189,20 +172,10 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
 
     _enter_charging(serial_port)
 
-    # OTA command + OK_OTA handshake (same robust pattern as I01).
-    serial_port.timeout = 0.5
-    raw = b""
-    for _ in range(3):
-        _flush_rx(serial_port)
-        sgc_at.send_command(serial_port, "OTA")
-        # Read until newline so misaligned bytes (e.g. start of a heartbeat
-        # REQ from auto-OTA retries) don't shift the OK_OTA line.
-        raw = serial_port.read_until(b"\n", size=32)
-        if raw == b"OK_OTA\n":
-            break
-        time.sleep(0.2)
+    # OTA command is a HIL protocol frame; send_command waits for the ACK.
+    ack = sgc_at.send_command(serial_port, "OTA")
+    assert ack is not None, "OTA 命令未收到 HIL ACK"
     serial_port.timeout = 0.1
-    assert raw == b"OK_OTA\n", f"OTA 命令未回 OK_OTA\\n（重试3次），raw={raw!r}"
 
     # Wait for bit7 heartbeat, then agree.
     end = time.time() + 5.0
@@ -242,23 +215,26 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     index = 0
     import sys as _sys
     t_stream_start = time.time()
+    t_last_write_done = t_stream_start
     while True:
         chunk = fw[index * BLOCK:(index + 1) * BLOCK]
         is_end = len(chunk) < BLOCK
         end = time.time() + 3.0
         read_req = None
         diag_seen = []
+        t_recv_start = time.time()
         while time.time() < end:
             f = sgc_at.recv_request(serial_port, timeout=1.0)
             if f is None:
                 continue
             try:
                 p = sgc_at.parse_frame(f)
-                diag_seen.append(f"op={p['opcode']:#06x} idx={p['payload'][2]:3d} payload={p['payload'][:8].hex()}")
+                diag_seen.append(f"op={p['opcode']:#06x} idx={p['payload'][2]:3d}")
             except ValueError:
                 diag_seen.append(f"CRC-fail {f.hex()[:24]}")
             if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_READ:
                 read_req = f
+                t_recv_done = time.time()
                 break
         assert read_req is not None, (
             f"未收到 READ index={index}（T+{(time.time()-t_stream_start)*1000:.0f}ms），"
@@ -271,12 +247,18 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
         chunk = fw[fw_index * BLOCK:(fw_index + 1) * BLOCK]
         is_end = len(chunk) < BLOCK
         rsp = sgc_at.pack_read_response(fw_index, chunk, packet_type=1 if is_end else 0)
+        t_write_start = time.time()
         written = serial_port.write(rsp)
         serial_port.flush()
+        t_write_done = time.time()
+        gap_ms = (t_recv_start - t_last_write_done) * 1000
         _sys.stderr.write(
-            f"[ota] block fw_idx={fw_index} pc_idx={index} wrote={written}/{len(rsp)}B "
-            f"@ T+{(time.time()-t_stream_start)*1000:6.0f}ms\n"
+            f"[ota] fw_idx={fw_index:3d} pc_idx={index:3d} "
+            f"gap={gap_ms:5.0f}ms recv={(t_recv_done-t_recv_start)*1000:5.0f}ms "
+            f"write={(t_write_done-t_write_start)*1000:4.0f}ms "
+            f"@ T+{(t_write_done-t_stream_start)*1000:6.0f}ms\n"
         )
+        t_last_write_done = t_write_done
         if is_end:
             break
         index += 1

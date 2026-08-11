@@ -34,4 +34,20 @@ uint16_t at_frame_pack_response(uint8_t *buf, uint16_t opcode, uint8_t status,
 at_status at_frame_parse(const uint8_t *buf, uint16_t total_len, uint16_t *opcode, uint8_t *status,
                          uint8_t *payload, uint8_t *payload_len);
 
+/* Frame-aware receive: hunt for the magic lead byte, read the 10-byte header,
+ * parse the Size field, then read exactly `size` bytes. Returns the frame
+ * length written to buf, or 0 on timeout. Each byte received resets the
+ * timeout, so a steady stream never trips it; only a `timeout_ms` gap with no
+ * new bytes fails. This is the rx side to pair with hal_usart_send — it
+ * replaces hal_usart_send_recv for protocols with a known frame size, avoiding
+ * the latter's full byte-gap timeout wait after the last byte lands.
+ *
+ * If expected_opcode is non-zero, the function peeks the opcode field from
+ * the header BEFORE consuming any payload bytes. When the opcode does not
+ * match, it returns 0 and leaves the frame in the ring buffer — so a caller
+ * like charge_poll that expects a heartbeat response (0x3001) will not eat a
+ * HIL command frame (0x3010+) that happens to arrive during its recv window.
+ * Pass 0 to accept any opcode (legacy behaviour). */
+uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode);
+
 #endif /* AT_FRAME_H */

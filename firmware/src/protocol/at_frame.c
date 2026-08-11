@@ -2,6 +2,8 @@
 
 #include "at_crc.h"
 #include "at_frame.h"
+#include "hal_timer.h"
+#include "hal_usart.h"
 
 #define AT_FRAME_OFFSET_CRC 4U
 #define AT_FRAME_OFFSET_SIZE 5U
@@ -105,4 +107,74 @@ at_status at_frame_parse(const uint8_t *buf, uint16_t total_len, uint16_t *opcod
     }
 
     return AT_SUCCESS;
+}
+
+uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode) {
+    uint32_t start = hal_timer_get_ms();
+    uint8_t c;
+
+    /* Skip bytes until the magic lead '#' (0x23) — but don't consume it yet.
+     * We peek so that if expected_opcode doesn't match, the whole frame stays
+     * in the buffer for another consumer. */
+    while (true) {
+        if (!hal_usart_rx_peek(&c)) {
+            if (hal_timer_expired(start, timeout_ms)) {
+                return 0U;
+            }
+            continue;
+        }
+        if (c == 0x23U) {
+            break;
+        }
+        (void)hal_usart_rx_get(&c);  /* drop non-magic byte */
+    }
+
+    /* Wait for the full 10-byte header to arrive, peeking without consuming. */
+    uint8_t header[AT_FRAME_HEADER_SIZE];
+    while (true) {
+        if (hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
+            break;
+        }
+        if (hal_timer_expired(start, timeout_ms)) {
+            return 0U;
+        }
+    }
+
+    /* Verify magic. */
+    uint32_t magic = at_frame_get_be32(header);
+    if (magic != AT_FRAME_MAGIC_REQ && magic != AT_FRAME_MAGIC_RSP) {
+        /* Bogus lead byte — consume it so the next call re-hunts. */
+        (void)hal_usart_rx_get(&c);
+        return 0U;
+    }
+
+    /* Parse size + opcode. */
+    uint16_t size = at_frame_get_be16(header + AT_FRAME_OFFSET_SIZE);
+    uint16_t opcode = at_frame_get_be16(header + AT_FRAME_OFFSET_OPCODE);
+    if (size < AT_FRAME_HEADER_SIZE || size > buf_max) {
+        (void)hal_usart_rx_get(&c);
+        return 0U;
+    }
+
+    /* Opcode filter: leave the whole frame in the buffer if it's not what the
+     * caller wants, so e.g. charge_poll waiting on a heartbeat response does
+     * not swallow an unrelated HIL command frame. */
+    if (expected_opcode != 0U && opcode != expected_opcode) {
+        return 0U;
+    }
+
+    /* Consume the frame: drain the header we already peeked, then the payload. */
+    for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
+        (void)hal_usart_rx_get(&buf[i]);
+    }
+    uint16_t n = AT_FRAME_HEADER_SIZE;
+    while (n < size) {
+        if (hal_usart_rx_get(&buf[n])) {
+            n++;
+            start = hal_timer_get_ms();
+        } else if (hal_timer_expired(start, timeout_ms)) {
+            return 0U;
+        }
+    }
+    return n;
 }

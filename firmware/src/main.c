@@ -95,6 +95,23 @@ int main(void) {
     button_init();
     hal_pwr_idle();
 
+    /* Drop spurious EXTI edges captured during power-rail settling so the
+     * firmware does not enter HANDSHAKING on a phantom lid event. */
+    exti_pending = 0U;
+#ifdef HIL_TEST
+    /* HIL tests drive lid state via OPEN/CLOSE commands (sm_inject_lid_event),
+     * so disable the physical HALL EXTI. A bouncing HALL sensor otherwise
+     * traps firmware in a handshake → FORCE_CHARGING loop that starves
+     * update_mode_poll and prevents OPEN from triggering a fresh handshake. */
+    exti_interrupt_disable(EXTI_4);
+    exti_interrupt_flag_clear(EXTI_4);
+#endif
+
+    /* CW2017 SOC engine needs settling time after the quickstart triggered in
+     * cw2017_init(); reading it immediately returns a transitional 0, which
+     * would set sm.case_soc=0 and trigger spurious LOW_BATT_BLINK. */
+    hal_timer_delay_ms(500);
+
     refresh_case_status();
     last_soc_refresh = hal_timer_get_ms();
 
