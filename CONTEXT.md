@@ -284,35 +284,64 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 2. ~~A-SP1924RBGWW datasheet~~
    - 已确认: 输出低电平点亮 LED
 
-## 待硬件验证 (Hardware Verification Required)
-
-以下功能已在软件层面实现和测试，但未在实际硬件上验证:
-
-1. I2C 实际通信 — CW2017/IP5353 寄存器读写
-2. ~~UART 实际通信 — POGO 心跳帧收发~~ 已验证 (HIL A 类 7/7 通过, 2026-08-03)
-3. 电源时序 — ET3328 5V/0V/1.8V 切换波形
-4. Deep-Sleep 功耗 — 目标 <50uA
-5. Standby 功耗 — 目标 <5uA
-6. LED 效果 — 呼吸/闪烁/长亮的实际视觉效果
-7. 充电全流程 — 开盖→握手→充电→充满→关机
-8. OTA 实际传输 — 与真实眼镜端通信
-
 ## HIL 测试进展 (Hardware-in-the-Loop)
 
 测试环境: GD32E230 核心板 + USB-TTL (PA9/PA10) + PC pytest 模拟眼镜端
 测试矩阵: docs/HIL_TEST_MATRIX.md (9 类 ~70 用例)
 
-| 类别 | 内容 | 状态 |
+| 类别 | 内容 | 状态 | 备注 |
+|------|------|------|------|
+| A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | ✅ PASS 7/7 | 2026-08-03 |
+| B | 时序 (握手 800ms / 心跳间隔 / 30s 开盖 / 60s 关盖 / 9min 强充) | ◐ B03/B04 写脚本 | 其余用例待跑 |
+| C | 状态机转换全覆盖 | ◐ C01/C02/C07 写脚本 | C03/C12 skip（CW2017 SOC 异常挡道） |
+| E | 按键 (短按查电量 / 50ms 去抖 / 长按忽略) | ◐ E01 写脚本 | 全测待跑 |
+| F | 霍尔 (双沿注入 / 开关盖转换) | ◐ F03 写脚本 | 全测待跑 |
+| G | LED 灯效 (呼吸颜色 / 充满白 / 查电量 7s / 低电红闪) | ❌ TODO | 需人眼观察或自动化 |
+| H | 充电仲裁 (USB 优先 / 无线 fallback / NTC 停充) | ❌ TODO | — |
+| I | OTA 升级 | ◐ I01 ✅ PASS / I02 框架 | I02 需 SGC_APP_BIN 环境变量跑实测 |
+| J | 低功耗 (Deep-Sleep <50uA / Standby <5uA / 唤醒源) | ❌ TODO | 需电流计 |
+
+## 待硬件验证 (Hardware Verification Required)
+
+以下功能已在软件层面实现和单元测试，但未在实际硬件上验证：
+
+### 已通过 HIL 验证
+- ✅ UART 实际通信 — POGO 心跳帧收发（A 类 7/7，2026-08-03）
+- ✅ AT 协议帧格式（Magic/Size/Opcode/CRC/Payload）
+- ✅ OTA 触发链路（I01：OTA 命令 → bit7 申请 → 同意 → PREPARE，2026-08-07）
+
+### 待硬件验证（HIL 自动化）
+1. **B 类时序** — 握手 800ms 阻塞 / 心跳 1s 维持 / 30s 充电轮询 / 60s 关盖轮询 / 9min 强充窗口
+2. **C 类状态机** — 全部状态转换路径（受 CW2017 SOC 异常影响部分 case skip）
+3. **E 类按键** — 短按查电量 / 去抖 / 长按忽略
+4. **F 类霍尔** — 开盖/关盖事件双沿触发
+5. **G 类 LED** — 呼吸效果 / 充满白长亮 / 查电量 7s / 低电红闪（G 类需人眼或光传感器自动化）
+6. **H 类充电仲裁** — USB 插入切无线 / 拔 USB 切无线 / NTC critical 停充
+7. **I02 完整 OTA** — App.bin 推送 → BL 搬运 → 新版本运行（`SGC_APP_BIN=<path>` 跑 pytest）
+8. **J 类低功耗** — Deep-Sleep <50uA / Standby <5uA / EXTI 唤醒源（HALL/KEY/CHAGER/BAT）
+
+### 待硬件验证（非 HIL 自动化，需仪器/真机）
+1. **I2C 实际通信** — CW2017/IP5353 寄存器读写（部分通过 SCAN 命令间接验证）
+2. **电源时序** — ET3328 5V/0V/1.8V 切换波形（示波器抓 RPD/IN/1V8EN）
+3. **充电全流程** — 开盖→握手→充电→充满→关机（真机 + 眼镜）
+4. **OTA 与真眼镜端互通** — 协议一致性 + 实际升级成功率
+
+### 已知硬件问题（阻塞部分测试）
+- **CW2017 battery profile 未烧录**：实测 VERSION=0x0F（应 0xA0）、SOC=0xFE=254%（异常），VCELL 准确。所有基于 SOC% 的判断（低电阈值 / MAINTAINING 进入 / 低电关机 / LED 分级）当前不可信。量产前必须烧录 battery profile。
+
+## 待完成 (Code/Documentation)
+
+代码层尚未实现或待核对的项，按优先级排序：
+
+| 项 | 说明 | 优先级 |
 |------|------|------|
-| A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | PASS 7/7 |
-| B | 时序 (握手/心跳间隔/超时) | B03/B04 写了脚本 |
-| C | 状态机转换 (IDLE/HANDSHAKING/CHARGING/...) | C01/C02/C07 写了脚本 (C03/C12 skip：CW2017 SOC 异常) |
-| E | 按键 (KEY 命令链路) | E01 写了脚本 |
-| F | 霍尔 (双沿注入) | F03 写了脚本 |
-| G | LED 灯效 | TODO (人眼观察) |
-| H | 充电仲裁 (有线/无线) | TODO |
-| I | OTA 升级 | I01 触发链路 + I02 完整烧录框架 |
-| J | 低功耗 (Deep-Sleep/Standby) | TODO |
+| SHIP_MODE 进入路径 | 状态枚举有，`pm_enter_ship_mode()` 实现了（power_mgmt.c:30），但代码无任何路径进 ST_SHIP_MODE — 当前靠 PB14 SHIP_CTR 硬件信号控制 | 低（硬件可控） |
+| LED 低电红闪 7s | REQ 说"1%＜电量≤5% 红闪 7s 后灭"，代码是常闪（led_effect.c:42 LOW_BATT_BLINK，无 7s 定时） | 中（G 类测试时核对） |
+| 单元测试补 hal_bootmeta | 双 page 轮换 / pick_latest / next_meta_target 纯软件逻辑，无硬件依赖，OTA 掉电安全核心 | 中 |
+| SOC 异常兜底校验 | CW2017 SOC > 100 视为异常，回退用 VCELL 估算（依赖硬件 profile 能否烧） | 中 |
+| 波特率发布前确认 | 当前 115200（调试期偏离 spec 921600），发布前与眼镜端对齐 | 发布前 |
+| ota_verify 空函数 | 协议（PROT/TIM）无 checksum 字段，OTA_UPGRADE_PLAN §6 明确预留 | 低（协议扩展后补） |
+| 5min 无活动 LED 关闭 | BLE 相关，已 CANCELLED（CONTEXT.md 已记录） | 取消 |
 
 ## ⚠️ 临时测试代码（HIL_TEST 编译开关隔离）
 
