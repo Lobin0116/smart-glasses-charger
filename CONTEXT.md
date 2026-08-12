@@ -175,7 +175,18 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 - 放电保护: -20°C ~ 60°C (TBD)
 
 ## 通信超时
-- AT 协议请求→响应周期: 100ms（超时即判失败）
+- AT 协议请求→响应周期: **100ms**（spec，固件 OTA_TIMEOUT_MS=100）
+- `at_frame_recv` 失败前清 buffer（避免 stale 干扰下次 retry）
+- UART RX buffer: **512B**（容纳 2 个 OTA RSP，每个 255B；防止 HIL retry 时环形覆盖）
+
+### OTA 稳定性历史（2026-08-12）
+HIL 实测发现 OTA I02 在 100ms timeout 下 flaky。**根因不是 PC USB-TTL 抖动本身**，而是固件设计放大效应：
+1. RX buffer 256B 装不下 2 个 RSP（510B），固件 retry 时 PC 第二个 RSP 环形覆盖第一个 → parse 失败 → 雪崩
+2. at_frame_recv 失败时不清 buffer，stale 数据干扰下次 retry
+
+**根本修复**：buffer 256B→512B + 失败前清 buffer。修复后 OTA_TIMEOUT_MS 保持 spec 100ms。
+
+之前曾尝试 30ms timeout（实测有效但是治标），现已回退到 100ms。生产场景（眼镜 MCU 直连 POGO，<10ms 响应）不受影响。
 
 ## 低电阈值（待统一）
 - 时序文档用电压: Vbat ≤ 3.4V = 低电
