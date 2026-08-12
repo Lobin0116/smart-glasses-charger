@@ -8,7 +8,12 @@
 
 #define HAL_USART_BAUDRATE    115200U
 #define HAL_USART_RX_DMA_CH   DMA_CH2
-#define HAL_USART_RX_BUF_SIZE 256U
+/* 512 B fits two OTA RSPs (255 B each) with margin. At 256 B a single retry
+ * (PC re-sends the RSP before firmware consumed the first) wraps the ring and
+ * corrupts both frames — that was the snowball that made 100 ms timeout
+ * unstable on the HIL bed. Production traffic never fills this (glasses send
+ * exactly one RSP per REQ), the extra 256 B is HIL headroom. */
+#define HAL_USART_RX_BUF_SIZE 512U
 
 static volatile uint8_t rx_buf[HAL_USART_RX_BUF_SIZE];
 static uint16_t rx_tail;
@@ -64,6 +69,15 @@ static uint16_t rx_head_get(void)
 void hal_usart_rx_clear(void)
 {
     rx_tail = rx_head_get();
+}
+
+uint16_t hal_usart_rx_avail(void)
+{
+    uint16_t head = rx_head_get();
+    if (head >= rx_tail) {
+        return (uint16_t)(head - rx_tail);
+    }
+    return (uint16_t)(HAL_USART_RX_BUF_SIZE - rx_tail + head);
 }
 
 bool hal_usart_rx_get(uint8_t *c)

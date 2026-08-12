@@ -24,6 +24,10 @@ bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n);
  * commands and block update_mode_poll dispatch. */
 void hal_usart_rx_clear(void);
 
+/* Count of unread bytes currently in the RX ring buffer (head - tail). For
+ * diagnostics: distinguishes "PC never sent" from "PC sent partial frame". */
+uint16_t hal_usart_rx_avail(void);
+
 uint16_t hal_usart_send(const uint8_t *data, uint16_t len);
 
 uint16_t hal_usart_recv(uint8_t *buf, uint16_t maxlen, uint32_t timeout_ms);

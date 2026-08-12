@@ -24,6 +24,8 @@ extern volatile uint16_t ota_dbg_last_index;
 extern volatile uint16_t ota_dbg_parse_fails;
 extern volatile uint8_t ota_dbg_last_fail_reason;
 extern volatile uint16_t ota_dbg_last_success_rx_len;
+extern volatile uint8_t at_frame_last_fail_stage;
+extern volatile uint16_t at_frame_last_buf_bytes;
 
 /* Send a HIL ACK frame: response magic + echoed opcode + status + payload. */
 static void send_hil_ack(uint16_t opcode, at_status status, const uint8_t *payload, uint8_t payload_len)
@@ -77,7 +79,7 @@ static void handle_hil_ota(void)
     send_hil_ack(AT_OPCODE_HIL_OTA, AT_SUCCESS, NULL, 0U);
 }
 
-    /* HIL_STATUS payload (packed, big-endian u16 fields) — 17 bytes.
+    /* HIL_STATUS payload (packed, big-endian u16 fields) — 20 bytes.
      * PC unpacks with struct.unpack in sgc_at.py. */
     #pragma pack(push, 1)
 typedef struct
@@ -99,6 +101,9 @@ typedef struct
     uint8_t ota_fail_reason;
     uint8_t ota_succ_hi;
     uint8_t ota_succ_lo;
+    uint8_t at_frame_fail_stage;  /* 0=none, 1=stage1 timeout (buffer empty), 2=stage2 timeout (header incomplete), 3=magic fail, 4=size fail, 5=opcode mismatch, 6=stage6 timeout (payload gap) */
+    uint8_t at_frame_buf_bytes_hi;
+    uint8_t at_frame_buf_bytes_lo;
 } hil_status_payload_t;
     #pragma pack(pop)
 
@@ -127,6 +132,9 @@ static void handle_hil_status(void)
     p.ota_fail_reason = ota_dbg_last_fail_reason;
     p.ota_succ_hi = (uint8_t)(ota_dbg_last_success_rx_len >> 8);
     p.ota_succ_lo = (uint8_t)(ota_dbg_last_success_rx_len & 0xFFU);
+    p.at_frame_fail_stage = at_frame_last_fail_stage;
+    p.at_frame_buf_bytes_hi = (uint8_t)(at_frame_last_buf_bytes >> 8);
+    p.at_frame_buf_bytes_lo = (uint8_t)(at_frame_last_buf_bytes & 0xFFU);
 
     send_hil_ack(AT_OPCODE_HIL_STATUS, AT_SUCCESS, (const uint8_t *)&p, (uint8_t)sizeof(p));
 }

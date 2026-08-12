@@ -17,6 +17,18 @@
 
 #define AT_FRAME_CRC_INIT       0x00U
 
+/* Diagnostic: last failure detail, exposed via HIL STATUS.
+ *   last_fail_stage: 0=none/Success, 1=stage1 timeout (buffer empty), 2=stage2
+ *                   timeout (header incomplete), 3=magic fail, 4=size fail,
+ *                   5=opcode mismatch, 6=stage6 timeout (payload gap).
+ *   last_buf_bytes: rx_buf bytes available (head - tail) at the moment of fail.
+ *                   stage=1 + buf=0 => PC byte never reached rx_buf (USB-TTL
+ *                   jitter or USART/DMA stalled). stage=1 + buf>0 => buffer
+ *                   has non-magic bytes (noise/garbage). stage=2/6 + buf>0 =>
+ *                   partial frame (PC RSP split across USB frames). */
+volatile uint8_t at_frame_last_fail_stage = 0U;
+volatile uint16_t at_frame_last_buf_bytes = 0U;
+
 static void at_frame_put_be16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)(v >> 8);
@@ -132,6 +144,8 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
 #endif
         if (!hal_usart_rx_peek(&c)) {
             if (hal_timer_expired(start, timeout_ms)) {
+                at_frame_last_fail_stage = 1U;
+                at_frame_last_buf_bytes = hal_usart_rx_avail();
                 return 0U;
             }
             continue;
@@ -152,6 +166,12 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
             break;
         }
         if (hal_timer_expired(start, timeout_ms)) {
+            at_frame_last_fail_stage = 2U;
+            at_frame_last_buf_bytes = hal_usart_rx_avail();
+            /* Torn frame: magic arrived but header never completed. Drop
+             * everything so the next retry starts from a clean buffer instead
+             * of hunting for magic in a half-filled one. */
+            hal_usart_rx_clear();
             return 0U;
         }
     }
@@ -161,6 +181,9 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     if (magic != AT_FRAME_MAGIC_REQ && magic != AT_FRAME_MAGIC_RSP) {
         /* Bogus lead byte — consume it so the next call re-hunts. */
         (void)hal_usart_rx_get(&c);
+        at_frame_last_fail_stage = 3U;
+        at_frame_last_buf_bytes = hal_usart_rx_avail();
+        hal_usart_rx_clear();
         return 0U;
     }
 
@@ -169,6 +192,9 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     uint16_t opcode = at_frame_get_be16(header + AT_FRAME_OFFSET_OPCODE);
     if (size < AT_FRAME_HEADER_SIZE || size > buf_max) {
         (void)hal_usart_rx_get(&c);
+        at_frame_last_fail_stage = 4U;
+        at_frame_last_buf_bytes = hal_usart_rx_avail();
+        hal_usart_rx_clear();
         return 0U;
     }
 
@@ -176,6 +202,8 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
      * caller wants, so e.g. charge_poll waiting on a heartbeat response does
      * not swallow an unrelated HIL command frame. */
     if (expected_opcode != 0U && opcode != expected_opcode) {
+        /* Don't record as fail — this is the intentional "leave frame for other
+         * consumer" path, not an error. Buffer is NOT cleared. */
         return 0U;
     }
 
@@ -192,9 +220,18 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
             n++;
             start = hal_timer_get_ms();
         } else if (hal_timer_expired(start, timeout_ms)) {
+            at_frame_last_fail_stage = 6U;
+            at_frame_last_buf_bytes = hal_usart_rx_avail();
+            /* Payload stalled mid-frame. Drop everything so retry starts clean. */
+            hal_usart_rx_clear();
             return 0U;
         }
     }
+
+    /* Success: clear fail stage so a subsequent STATUS read after a good frame
+     * doesn't report stale failure info. */
+    at_frame_last_fail_stage = 0U;
+    at_frame_last_buf_bytes = 0U;
 
     /* Successfully consumed a complete frame matching expected_opcode.
      * Per request-response protocol, one REQ maps to one RSP — anything

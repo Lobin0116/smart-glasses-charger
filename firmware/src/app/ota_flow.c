@@ -13,8 +13,10 @@
 #include "hal_usart.h"
 #include "hal_wwdgt.h"
 
-/* Timing budget from CONTEXT.md "通信超时": the AT request/response cycle is
- * 100 ms, so each exchange below uses that as its deadline. */
+/* Timing budget from CONTEXT.md "通信超时": the AT request-response cycle is
+ * 100 ms. The HIL bed's USB-TTL jitter used to force this down to 30 ms, but
+ * the real fix (larger RX buffer + clearing stale data on parse failure) lets
+ * us keep the spec value. */
 #define OTA_TIMEOUT_MS 100U
 
 /* Heartbeats sent while waiting for the glasses to agree, spaced one cycle apart
@@ -340,7 +342,10 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
         uint16_t dlen = 0U;
         if (!ota_read_block(index, OTA_BLOCK_SIZE, block, &dlen, &type)) {
             hal_flash_lock();
-            ota_dbg_last_fail_reason = 14U;   /* READ (Protocol error in block transfer) */
+            /* Preserve ota_read_block's ota_dbg_last_fail_reason (1/2/3/4/5/6/9)
+             * — it tells us *why* the read failed (buffer-empty vs CRC vs
+             * index-mismatch). Don't overwrite with a generic "14 = READ"
+             * code, otherwise we lose the diagnostic detail. */
             ota_dbg_last_index = index;
             ota_finish(ctx);
             return OTA_ERR_READ;
