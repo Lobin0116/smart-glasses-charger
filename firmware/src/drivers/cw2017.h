@@ -19,10 +19,9 @@ typedef struct
     int8_t temp_c;
 } cw2017_status_t;
 
-/* Wake the gauge, quick-start its SOC engine to clear any sleep state, and
- * confirm the chip answers with its fixed version id. Call once after the I2C
- * bus is up. Returns 0 on a present, running CW2017, -1 if the device does not
- * answer, rejects the power-up writes, or reports an unexpected id. */
+/* Wake the gauge, auto-burn the battery profile if it's missing or corrupt,
+ * and quick-start the SOC engine to clear any sleep state. Call once after the
+ * I2C bus is up. Returns 0 on success, -1 if any I2C transfer faults. */
 int cw2017_init(void);
 
 /* Read the cell state of charge as an integer percentage (0-100). Returns 0 on a
