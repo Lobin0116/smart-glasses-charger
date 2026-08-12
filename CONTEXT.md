@@ -295,7 +295,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 |------|------|------|------|
 | A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | ✅ PASS 9/9 (含 A15 重写为 MAINTAINING 验证) | 2026-08-12 |
 | B | 时序 (握手 800ms / 心跳间隔 / 30s 开盖 / 60s 关盖 / 9min 强充) | ✅ PASS B03/B04 | 2026-08-12 |
-| C | 状态机转换全覆盖 | ✅ PASS C01/C02, C07 XPASS (xfail 标记可去) | C03/C12 skip（CW2017 SOC 异常） |
+| C | 状态机转换全覆盖 | ✅ PASS C01/C02, C07 XPASS (xfail 标记可去) | C03/C12 skip（CW2017 profile 烧录后解锁，待硬件验证） |
 | E | 按键 (短按查电量 / 50ms 去抖 / 长按忽略) | ✅ PASS E01 | 2026-08-12 |
 | F | 霍尔 (双沿注入 / 开关盖转换) | ✅ PASS F01/F02/F03 (F02/F03 flaky 标记) | HIL 命令注入时序竞争 |
 | G | LED 灯效 (呼吸颜色 / 充满白 / 查电量 7s / 低电红闪) | ❌ TODO | 需人眼观察或自动化 |
@@ -363,7 +363,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 4. **OTA 与真眼镜端互通** — 协议一致性 + 实际升级成功率
 
 ### 已知硬件问题（阻塞部分测试）
-- **CW2017 battery profile 未烧录**：实测 VERSION=0x0F（应 0xA0）、SOC=0xFE=254%（异常），VCELL 准确。所有基于 SOC% 的判断（低电阈值 / MAINTAINING 进入 / 低电关机 / LED 分级）当前不可信。量产前必须烧录 battery profile。
+- **~~CW2017 battery profile 未烧录~~**：**已在固件层实现 auto-burn**（cw2017.c：`cw2017_init` 启动时检查 MODE_CONFIG/SOC_ALERT/PROFILE，必要时自动烧录 80 字节 4.2V Li-ion profile + 触发 quickstart）。首次启动 ~250ms 烧录，后续启动 ~10ms 自检跳过。烧录后 VERSION=0xA0、SOC=0-100% 应正常，解锁 C03/C05/C12 等 SOC 依赖 case。**待硬件实测确认**（板子重新烧固件后自动生效）。
 
 ## 待完成 (Code/Documentation)
 
@@ -371,10 +371,11 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 
 | 项 | 说明 | 优先级 |
 |------|------|------|
-| SHIP_MODE 进入路径 | 状态枚举有，`pm_enter_ship_mode()` 实现了（power_mgmt.c:30），但代码无任何路径进 ST_SHIP_MODE — 当前靠 PB14 SHIP_CTR 硬件信号控制 | 低（硬件可控） |
-| LED 低电红闪 7s | REQ 说"1%＜电量≤5% 红闪 7s 后灭"，代码是常闪（led_effect.c:42 LOW_BATT_BLINK，无 7s 定时） | 中（G 类测试时核对） |
-| 单元测试补 hal_bootmeta | 双 page 轮换 / pick_latest / next_meta_target 纯软件逻辑，无硬件依赖，OTA 掉电安全核心 | 中 |
-| SOC 异常兜底校验 | CW2017 SOC > 100 视为异常，回退用 VCELL 估算（依赖硬件 profile 能否烧） | 中 |
+| SHIP_MODE 进入路径 | **待确认**：状态枚举 `ST_SHIP_MODE` 存在，`pm_enter_ship_mode()` 实现了（power_mgmt.c:32 → Standby + 拉高 PB14 SHIP_CTR），但代码无任何路径调用 → 当前是死代码。REQ §"运输功能"说"眼镜厂内设置进入船运模式"，但**进入触发机制不明**（工厂夹具？长按？HIL 命令？）。**决策暂缓**：暂留代码不动，待产品/工程确认进入方式后再删除死枚举或加触发路径 | 待确认 |
+| ~~LED 低电红闪 7s（BATTERY_DISPLAY 低电分支）~~ | **已修复**：REQ §3 "1%<SOC≤5% 红闪 7s" 是查电量场景（不是持续低电闪）。`apply_effect(BATTERY_DISPLAY)` 低电分支改 LED_BLINK；`resolve_effect` 删 case_soc≤5% 自动闪路径；删 `LED_EFFECT_LOW_BATT_BLINK` 枚举。HIL 时人眼验证 | ✅ Done |
+| ~~单元测试补 hal_bootmeta~~ | **已完成**：`firmware/tests/test_bootmeta.c` 12 用例 / 58 assertion 全通过。覆盖 pick_latest（空/m0/m1/双 seq 比较）+ meta_validate（bad magic/CRC）+ 双 page 轮换（set/clear 交替）+ 掉电恢复（一页 CRC 损坏时回退另一页）+ OTA round-trip。改动：hal_bootmeta.c 改用 `hal_flash_read` 取代直接 dereference（产代码 memory-mapped memcpy），让 host 测试可 mock；hal_flash.h/.c 加 `hal_flash_read` | ✅ Done |
+| ~~SOC 异常兜底校验~~ + ~~CW2017 profile 烧录~~ | **已修复**：cw2017.c 启动时 auto-burn 80 字节 4.2V Li-ion profile（如未烧或漂移），quickstart 后 SOC 应正常。`cw2017_get_soc` 保留 SOC==0/>100 fallback=100 兜底（防芯片异常）。C03/C05/C12 待硬件实测确认解锁 | ✅ Done |
+| CW2017 profile 烧录工具 | 不需要独立工具：固件 cw2017_init 自检 + auto-burn 已实现，无需 HIL 命令/USB-I2C 适配器 | ✅ Done |
 | 波特率发布前确认 | 当前 115200（调试期偏离 spec 921600），发布前与眼镜端对齐 | 发布前 |
 | ota_verify 空函数 | 协议（PROT/TIM）无 checksum 字段，OTA_UPGRADE_PLAN §6 明确预留 | 低（协议扩展后补） |
 | 5min 无活动 LED 关闭 | BLE 相关，已 CANCELLED（CONTEXT.md 已记录） | 取消 |
