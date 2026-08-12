@@ -24,4 +24,9 @@ bool hal_flash_page_erase(uint32_t page_address);
  * Feeds WWDGT every 1 KB to avoid watchdog reset during long writes. */
 bool hal_flash_write(uint32_t address, const uint8_t *data, uint32_t len);
 
+/* Read len bytes from flash address. On the GD32 main flash is memory-mapped so
+ * this is a memcpy; wrapping it here lets host-side unit tests substitute a
+ * RAM-backed mock without touching the caller. */
+bool hal_flash_read(uint32_t address, uint8_t *buf, uint32_t len);
+
 #endif /* HAL_FLASH_H */

@@ -19,59 +19,79 @@ static uint32_t bootmeta_crc32(const uint8_t *data, uint32_t len)
     return ~crc;
 }
 
-static bool meta_validate(const boot_meta_t *m, uint32_t *seq_out)
+static bool meta_validate_at(uint32_t addr, boot_meta_t *out, uint32_t *seq_out)
 {
-    if (m->magic != BOOT_META_MAGIC) {
+    boot_meta_t m;
+    if (!hal_flash_read(addr, (uint8_t *)&m, sizeof(m))) {
         return false;
     }
-    uint32_t expected = bootmeta_crc32((const uint8_t *)m, (uint32_t)offsetof(boot_meta_t, crc32));
-    if (m->crc32 != expected) {
+    if (m.magic != BOOT_META_MAGIC) {
         return false;
+    }
+    uint32_t expected = bootmeta_crc32((const uint8_t *)&m, (uint32_t)offsetof(boot_meta_t, crc32));
+    if (m.crc32 != expected) {
+        return false;
+    }
+    if (out != NULL) {
+        *out = m;
     }
     if (seq_out != NULL) {
-        *seq_out = m->seq;
+        *seq_out = m.seq;
     }
     return true;
 }
 
-static const boot_meta_t *pick_latest(uint32_t *seq_out)
+/* Pick the page with the highest valid seq. Returns the meta contents and leaves
+ * seq_out untouched if neither page validates. */
+static bool pick_latest(boot_meta_t *out, uint32_t *seq_out)
 {
-    const boot_meta_t *m0 = (const boot_meta_t *)BOOT_META_ADDR_0;
-    const boot_meta_t *m1 = (const boot_meta_t *)BOOT_META_ADDR_1;
+    boot_meta_t m0, m1;
     uint32_t s0 = 0U, s1 = 0U;
-    bool v0 = meta_validate(m0, &s0);
-    bool v1 = meta_validate(m1, &s1);
+    bool v0 = meta_validate_at(BOOT_META_ADDR_0, &m0, &s0);
+    bool v1 = meta_validate_at(BOOT_META_ADDR_1, &m1, &s1);
     if (!v0 && !v1) {
-        return NULL;
+        return false;
     }
     if (!v0) {
+        if (out != NULL) {
+            *out = m1;
+        }
         if (seq_out != NULL) {
             *seq_out = s1;
         }
-        return m1;
+        return true;
     }
     if (!v1) {
+        if (out != NULL) {
+            *out = m0;
+        }
         if (seq_out != NULL) {
             *seq_out = s0;
         }
-        return m0;
+        return true;
     }
     if (s0 >= s1) {
+        if (out != NULL) {
+            *out = m0;
+        }
         if (seq_out != NULL) {
             *seq_out = s0;
         }
-        return m0;
+        return true;
+    }
+    if (out != NULL) {
+        *out = m1;
     }
     if (seq_out != NULL) {
         *seq_out = s1;
     }
-    return m1;
+    return true;
 }
 
 bool hal_bootmeta_read_staged(bool *staged, uint32_t *fw_size)
 {
-    const boot_meta_t *m = pick_latest(NULL);
-    if (m == NULL) {
+    boot_meta_t m;
+    if (!pick_latest(&m, NULL)) {
         if (staged != NULL) {
             *staged = false;
         }
@@ -81,10 +101,10 @@ bool hal_bootmeta_read_staged(bool *staged, uint32_t *fw_size)
         return false;
     }
     if (staged != NULL) {
-        *staged = (m->staged != 0U);
+        *staged = (m.staged != 0U);
     }
     if (fw_size != NULL) {
-        *fw_size = m->fw_size;
+        *fw_size = m.fw_size;
     }
     return true;
 }
@@ -111,11 +131,9 @@ static bool write_meta_at(uint32_t target_addr, uint32_t staged, uint32_t fw_siz
  * Returns target address and the next seq to write. */
 static uint32_t next_meta_target(uint32_t *new_seq_out)
 {
-    const boot_meta_t *m0 = (const boot_meta_t *)BOOT_META_ADDR_0;
-    const boot_meta_t *m1 = (const boot_meta_t *)BOOT_META_ADDR_1;
     uint32_t s0 = 0U, s1 = 0U;
-    bool v0 = meta_validate(m0, &s0);
-    bool v1 = meta_validate(m1, &s1);
+    bool v0 = meta_validate_at(BOOT_META_ADDR_0, NULL, &s0);
+    bool v1 = meta_validate_at(BOOT_META_ADDR_1, NULL, &s1);
     uint32_t new_seq;
     uint32_t target_addr;
     if (!v0 && !v1) {
@@ -149,10 +167,10 @@ bool hal_bootmeta_set_staged(uint32_t fw_size)
 
 bool hal_bootmeta_clear_staged(void)
 {
+    boot_meta_t latest;
     uint32_t fw_size = 0U;
-    const boot_meta_t *latest = pick_latest(NULL);
-    if (latest != NULL) {
-        fw_size = latest->fw_size;
+    if (pick_latest(&latest, NULL)) {
+        fw_size = latest.fw_size;
     }
     uint32_t new_seq = 0U;
     uint32_t target = next_meta_target(&new_seq);

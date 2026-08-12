@@ -14,6 +14,8 @@ add_library(sgc_mock STATIC
     ${CMAKE_SOURCE_DIR}/mock/mock_spl.c
     ${CMAKE_SOURCE_DIR}/mock/mock_stubs.c
     ${CMAKE_SOURCE_DIR}/../src/hal/hal_gpio.c
+    ${CMAKE_SOURCE_DIR}/../src/protocol/at_crc.c
+    ${CMAKE_SOURCE_DIR}/../src/protocol/at_frame.c
     ${CMAKE_SOURCE_DIR}/../src/app/charge_flow.c
 )
 target_include_directories(sgc_mock PUBLIC
@@ -46,12 +48,8 @@ endfunction()
 # GPIO HAL tests
 add_sgc_test(gpio_config test_gpio_config.c)
 
-# Protocol tests (no hardware dependency)
+# Protocol tests — uses at_crc.c + at_frame.c from sgc_mock.
 add_sgc_test(protocol test_protocol.c)
-target_sources(test_protocol PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src/protocol/at_crc.c
-    ${CMAKE_SOURCE_DIR}/../src/protocol/at_frame.c
-)
 
 # Charge flow + aux logic tests
 add_sgc_test(charge_flow test_charge_flow.c)
@@ -66,3 +64,11 @@ target_sources(test_state_machine PRIVATE
     ${CMAKE_SOURCE_DIR}/../src/app/aux_logic.c
 )
 target_link_libraries(test_state_machine PRIVATE)
+
+# Boot meta (OTA power-loss-safe selector). Self-contained mocks for hal_flash
+# live inside the test file (RAM-backed pages 62-63).
+add_sgc_test(bootmeta test_bootmeta.c)
+target_sources(test_bootmeta PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src/hal/hal_bootmeta.c
+)
+target_link_libraries(test_bootmeta PRIVATE)

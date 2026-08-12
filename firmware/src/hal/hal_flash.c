@@ -58,3 +58,14 @@ bool hal_flash_write(uint32_t address, const uint8_t *data, uint32_t len)
 #endif
     return true;
 }
+
+bool hal_flash_read(uint32_t address, uint8_t *buf, uint32_t len)
+{
+    if (buf == NULL) {
+        return false;
+    }
+    /* Main flash is memory-mapped on the GD32; a plain byte copy is enough.
+     * Caller guarantees address..address+len is within flash. */
+    memcpy(buf, (const void *)address, len);
+    return true;
+}

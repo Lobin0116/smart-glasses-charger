@@ -38,25 +38,32 @@ uint16_t hal_usart_send_recv(const uint8_t *tx, uint16_t tx_len, uint8_t *rx, ui
     return 0;
 }
 
-uint16_t
-at_frame_pack_request(uint8_t *buf, uint16_t opcode, const uint8_t *payload, uint8_t payload_len, uint8_t reserved)
+/* charge_flow.c uses hal_usart_send + at_frame_recv after the protocol layer was
+ * split (was hal_usart_send_recv). hal_usart stays a stub (it touches hardware);
+ * at_frame_* come from the real at_frame.c linked into sgc_mock (see CMake). */
+void hal_usart_send(const uint8_t *data, uint16_t len)
+{
+    (void)data;
+    (void)len;
+}
+bool hal_usart_rx_get(uint8_t *c)
+{
+    (void)c;
+    return false;
+}
+bool hal_usart_rx_peek(uint8_t *c)
+{
+    (void)c;
+    return false;
+}
+bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n)
 {
     (void)buf;
-    (void)opcode;
-    (void)payload;
-    (void)payload_len;
-    (void)reserved;
-    return 0;
+    (void)n;
+    return false;
 }
+void hal_usart_rx_clear(void) {}
 
-int at_frame_parse(
-    const uint8_t *buf, uint16_t total_len, uint16_t *opcode, uint8_t *status, uint8_t *payload, uint8_t *payload_len)
-{
-    (void)buf;
-    (void)total_len;
-    (void)opcode;
-    (void)status;
-    (void)payload;
-    (void)payload_len;
-    return 0;
-}
+/* at_frame.c feeds WWDGT in its wait loops (added during OTA stability work);
+ * mock it as a no-op for host tests. */
+void hal_wwdgt_feed(void) {}
