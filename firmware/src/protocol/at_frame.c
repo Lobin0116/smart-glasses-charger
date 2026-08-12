@@ -5,6 +5,10 @@
 #include "hal_timer.h"
 #include "hal_usart.h"
 
+#ifndef BL_NO_WWDGT
+#include "hal_wwdgt.h"
+#endif
+
 #define AT_FRAME_OFFSET_CRC     4U
 #define AT_FRAME_OFFSET_SIZE    5U
 #define AT_FRAME_OFFSET_OPCODE  7U
@@ -122,6 +126,10 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
      * We peek so that if expected_opcode doesn't match, the whole frame stays
      * in the buffer for another consumer. */
     while (true) {
+#ifndef BL_NO_WWDGT
+        hal_wwdgt_feed();  /* UART wait can outlast WWDGT 20ms window when host
+                            * is slow (pyserial async write); feed every iter. */
+#endif
         if (!hal_usart_rx_peek(&c)) {
             if (hal_timer_expired(start, timeout_ms)) {
                 return 0U;
@@ -137,6 +145,9 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     /* Wait for the full 10-byte header to arrive, peeking without consuming. */
     uint8_t header[AT_FRAME_HEADER_SIZE];
     while (true) {
+#ifndef BL_NO_WWDGT
+        hal_wwdgt_feed();
+#endif
         if (hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
             break;
         }
@@ -174,6 +185,9 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     }
     uint16_t n = AT_FRAME_HEADER_SIZE;
     while (n < size) {
+#ifndef BL_NO_WWDGT
+        hal_wwdgt_feed();
+#endif
         if (hal_usart_rx_get(&buf[n])) {
             n++;
             start = hal_timer_get_ms();
@@ -181,5 +195,13 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
             return 0U;
         }
     }
+
+    /* Successfully consumed a complete frame matching expected_opcode.
+     * Per request-response protocol, one REQ maps to one RSP — anything
+     * still in the buffer is stale (host sent extra RSPs without a REQ,
+     * which violates protocol). Drop them so subsequent REQ retries or
+     * HIL commands don't get blocked behind stale data. Production-safe
+     * because the glasses (per protocol) only sends one RSP per REQ. */
+    hal_usart_rx_clear();
     return n;
 }
