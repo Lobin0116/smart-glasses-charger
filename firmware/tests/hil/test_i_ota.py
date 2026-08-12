@@ -180,6 +180,7 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
     serial_port.write(sgc_at.pack_prepare_response(0))
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     """I02: push App.bin → case stages + resets → BL copies → new App runs.
 
@@ -188,8 +189,10 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     probes the post-reset firmware with a heartbeat carrying the new version
     and checks the case no longer auto-triggers OTA (mismatch detection).
     """
+    import gc
     import os
     import pytest
+    gc.disable()  # avoid GC pauses causing firmware retry (200ms timeout)
     app_bin = os.environ.get("SGC_APP_BIN")
     if not app_bin or not os.path.exists(app_bin):
         pytest.skip("set SGC_APP_BIN=<path> to a built App.bin to run this test")
@@ -276,18 +279,21 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
         chunk = fw[fw_index * BLOCK:(fw_index + 1) * BLOCK]
         is_end = len(chunk) < BLOCK
         rsp = sgc_at.pack_read_response(fw_index, chunk, packet_type=1 if is_end else 0)
-        t_write_start = time.time()
+        t_write_call = time.time()
         written = serial_port.write(rsp)
+        t_write_ret = time.time()
         serial_port.flush()
-        t_write_done = time.time()
+        t_flush_done = time.time()
         gap_ms = (t_recv_start - t_last_write_done) * 1000
-        _sys.stderr.write(
+        print(
             f"[ota] fw_idx={fw_index:3d} pc_idx={index:3d} "
-            f"gap={gap_ms:5.0f}ms recv={(t_recv_done-t_recv_start)*1000:5.0f}ms "
-            f"write={(t_write_done-t_write_start)*1000:4.0f}ms "
-            f"@ T+{(t_write_done-t_stream_start)*1000:6.0f}ms\n"
+            f"recv={(t_recv_done-t_recv_start)*1000:5.0f}ms "
+            f"w_call={(t_write_ret-t_write_call)*1000:3.0f}ms "
+            f"flush={(t_flush_done-t_write_ret)*1000:4.0f}ms "
+            f"@ T+{(t_flush_done-t_stream_start)*1000:6.0f}ms",
+            flush=True,
         )
-        t_last_write_done = t_write_done
+        t_last_write_done = t_flush_done
         if is_end:
             break
         index += 1

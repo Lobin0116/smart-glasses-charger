@@ -54,6 +54,19 @@ def _drain_firmware(serial_port):
 
     yield
 
+    # Query STATUS after each test for diagnostics (OTA fail_reason etc.).
+    # Cheap (~50ms) and printed to stdout, only useful when a test fails.
+    try:
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack:
+            st = sgc_at.parse_hil_status(ack)
+            print(f"[post-status] state={st['state']} ota_idx={st['ota_index']} "
+                  f"ota_rxlen={st['ota_rxlen']} ota_fails={st['ota_fails']} "
+                  f"ota_fail_reason={st['ota_fail_reason']} "
+                  f"ota_succ_len={st['ota_succ_len']}", flush=True)
+    except Exception:
+        pass
+
     serial_port.reset_input_buffer()
     sgc_at.reset_recv_buffer()
 

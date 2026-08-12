@@ -23,7 +23,7 @@
 #define OTA_REQUEST_GAP_MS  100U
 
 /* Bounded retries for the prepare and per-block exchanges. */
-#define OTA_EXCHANGE_RETRIES 3U
+#define OTA_EXCHANGE_RETRIES 5U
 
 /* Data bytes pulled per read request. The response carries a 5-byte header
  * (role + index + type) ahead of the data, so 240 keeps the response payload
@@ -272,20 +272,32 @@ static void ota_finish(sm_ctx_t *ctx)
 int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
 {
     hal_wwdgt_feed();
+    ota_dbg_last_fail_reason = 0U;   /* clear at entry; set on each failure path */
     if (progress_cb != NULL) {
         progress_cb(0U);
     }
 
     if (!ota_request(ctx)) {
+        ota_dbg_last_fail_reason = 10U;   /* REQUEST */
+        ota_dbg_last_index = 0U;
         ota_finish(ctx);
         return OTA_ERR_REQUEST;
     }
+    /* Drop any extra "agree" RSPs the host sent after ota_request succeeded
+     * (host doesn't know firmware already exited the retry loop). They have
+     * opcode HEART and would block ota_prepare's at_frame_recv filtering on
+     * PREPARE — at_frame_recv leaves non-matching frames in buffer. */
+    hal_usart_rx_clear();
 
     uint32_t fw_size = 0U;
     if (!ota_prepare(&fw_size)) {
+        ota_dbg_last_fail_reason = 11U;   /* PREPARE */
+        ota_dbg_last_index = 0U;
         ota_finish(ctx);
         return OTA_ERR_PREPARE;
     }
+    /* Same pattern: host may send extra PREPARE RSPs; clear before READ loop. */
+    hal_usart_rx_clear();
 
     /* Erase Staging B pages: ceil(fw_size / 1KB), capped at Staging capacity.
      * Bootloader will copy Staging → App on next reset, leaving the running
@@ -293,6 +305,8 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     uint32_t staging_pages = BOOT_STAGING_SIZE / HAL_FLASH_PAGE_SIZE;
     uint32_t total_pages = (fw_size + HAL_FLASH_PAGE_SIZE - 1U) / HAL_FLASH_PAGE_SIZE;
     if (total_pages == 0U || total_pages > staging_pages) {
+        ota_dbg_last_fail_reason = 12U;   /* PREPARE size out of range */
+        ota_dbg_last_index = (uint16_t)total_pages;
         ota_finish(ctx);
         return OTA_ERR_PREPARE;
     }
@@ -300,6 +314,8 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     for (uint32_t p = 0U; p < total_pages; p++) {
         if (!hal_flash_page_erase(BOOT_STAGING_BASE + p * HAL_FLASH_PAGE_SIZE)) {
             hal_flash_lock();
+            ota_dbg_last_fail_reason = 13U;   /* FLASH_ERASE */
+            ota_dbg_last_index = (uint16_t)p;
             ota_finish(ctx);
             return OTA_ERR_FLASH_ERASE;
         }
@@ -316,12 +332,16 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     while (type != AT_PACKET_TYPE_END) {
         if (index >= OTA_MAX_BLOCKS) {
             hal_flash_lock();
+            ota_dbg_last_fail_reason = 17U;   /* RUNAWAY */
+            ota_dbg_last_index = index;
             ota_finish(ctx);
             return OTA_ERR_RUNAWAY;
         }
         uint16_t dlen = 0U;
         if (!ota_read_block(index, OTA_BLOCK_SIZE, block, &dlen, &type)) {
             hal_flash_lock();
+            ota_dbg_last_fail_reason = 14U;   /* READ (Protocol error in block transfer) */
+            ota_dbg_last_index = index;
             ota_finish(ctx);
             return OTA_ERR_READ;
         }
@@ -333,6 +353,9 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
             }
             if (!hal_flash_write(BOOT_STAGING_BASE + offset, block, padded)) {
                 hal_flash_lock();
+                ota_dbg_last_fail_reason = 15U;   /* FLASH_PROG */
+                ota_dbg_last_index = index;
+                ota_dbg_last_rx_len = (uint16_t)(offset + dlen);  /* fail offset */
                 ota_finish(ctx);
                 return OTA_ERR_FLASH_PROG;
             }
@@ -350,12 +373,16 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     hal_flash_lock();
 
     if (!ota_verify(BOOT_STAGING_BASE, offset)) {
+        ota_dbg_last_fail_reason = 16U;   /* VERIFY */
+        ota_dbg_last_index = (uint16_t)(offset / OTA_BLOCK_SIZE);
         ota_finish(ctx);
         return OTA_ERR_VERIFY;
     }
 
     /* Commit: mark staged so Bootloader copies Staging → App on next reset. */
     if (!hal_bootmeta_set_staged(offset)) {
+        ota_dbg_last_fail_reason = 18U;   /* META */
+        ota_dbg_last_index = (uint16_t)(offset & 0xFFFFU);
         ota_finish(ctx);
         return OTA_ERR_META;
     }
