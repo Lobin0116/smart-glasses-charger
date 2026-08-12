@@ -42,11 +42,18 @@ def test_f01_open_lid_event(serial_port):
 def test_f02_close_lid_event(serial_port):
     """F02: CLOSE after handshake → firmware 重新进 HANDSHAKING 发心跳.
 
-    路径: RESET+OPEN → 回响应直到离开 HANDSHAKING (心跳间隔 >500ms) →
-         CLOSE → 重新握手 → 发心跳 REQ。
-    关盖 + glass_present 触发 sm_inject_lid_event → IDLE/HANDSHAKING 重新进入。
+    路径: RESET+OPEN → STATUS 轮询验证进 CHARGING/MAINTAINING →
+         CLOSE 注入 → 4s 内收到新心跳（关盖触发重新握手）.
+
+    F02 旧逻辑用 "心跳 interval > 500ms" 判定握手完成，但 HANDSHAKING retry
+    间隔与 CHARGING 30s 周期之间没有清晰 500ms 边界，CLOSE 时机随机命中
+    固件不同状态导致 3 rerun 全 fail。改用 STATUS 直接查询状态机。
     """
-    # RESET + OPEN
+    response = sgc_at.pack_heartbeat_response(
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
+    )
+
+    # 阶段 1：RESET + OPEN，持续 write response + STATUS 轮询确认进 CHARGING。
     serial_port.reset_input_buffer()
     sgc_at.reset_recv_buffer()
     sgc_at.send_command(serial_port, "RESET")
@@ -55,36 +62,32 @@ def test_f02_close_lid_event(serial_port):
     sgc_at.reset_recv_buffer()
     sgc_at.send_command(serial_port, "OPEN")
 
-    # 完成握手：持续回响应，直到心跳间隔 >500ms（已离开 HANDSHAKING）。
-    response = sgc_at.pack_heartbeat_response(
-        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
-    )
     serial_port.timeout = 0.1
-    last = time.time()
-    handshake_done = False
-    deadline = time.time() + 8.0
+    deadline = time.time() + 10.0
+    last_status_query = 0.0
+    entered = False
     while time.time() < deadline:
         serial_port.write(response)
-        nxt = sgc_at.recv_request(serial_port, timeout=1.0)
-        if nxt is None:
+        time.sleep(0.15)  # > at_frame_recv 100ms timeout，让固件有机会消费 RSP
+        if time.time() - last_status_query < 0.5:
             continue
-        interval_ms = (time.time() - last) * 1000
-        if interval_ms > 500:
-            handshake_done = True
-            # 满足触发退出的那帧 REQ 的 recv 窗口（避免它吞掉后面的 CLOSE 命令）。
-            serial_port.write(response)
-            time.sleep(0.15)
+        last_status_query = time.time()
+        serial_port.reset_input_buffer()
+        sgc_at.reset_recv_buffer()
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack is None:
+            continue
+        st = sgc_at.parse_hil_status(ack)
+        if st["state"] in (2, 3):  # CHARGING or MAINTAINING
+            entered = True
             break
-        last = time.time()
-    serial_port.timeout = 2.0
-    assert handshake_done, "8s 内未完成握手（未离开 HANDSHAKING，无法测 CLOSE 触发）"
+    assert entered, "10s 内 STATUS 未确认固件进 CHARGING/MAINTAINING，无法测 CLOSE 触发"
 
-    # 注入 CLOSE → 应触发重新握手。
+    # 阶段 2：注入 CLOSE → 4s 内期望收到新心跳（HANDSHAKING 重新触发）。
     serial_port.reset_input_buffer()
     sgc_at.reset_recv_buffer()
     sgc_at.send_command(serial_port, "CLOSE")
 
-    # 验证 firmware 重新进入 HANDSHAKING（在 4s 内发出新的心跳 REQ）。
     frame = sgc_at.recv_request(serial_port, timeout=4.0)
     assert frame is not None, "CLOSE 后 4s 内未收到新心跳（关盖事件未触发重新握手）"
 

@@ -77,7 +77,7 @@ def test_c02_handshake_success_stops_retry(serial_port):
     )
 
 
-@pytest.mark.xfail(reason="CLOSE consumed by MAINTAINING 1s heartbeat recv — pyserial async write makes timing uncontrollable on Windows; F02 passes because CHARGING has 30s gap")
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_c07_close_full_triggers_shutdown(serial_port):
     """C07: CHARGING + 充满 + 关盖 → SHUTTING_DOWN，收到 0x3002 关机帧.
 
