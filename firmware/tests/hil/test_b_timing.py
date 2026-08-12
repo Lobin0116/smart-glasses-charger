@@ -102,3 +102,69 @@ def test_b04_recv_timeout_100ms(serial_port):
         "150ms 等待 + 300ms 收集窗口内未收到 retry — "
         "firmware 未在 100ms recv timeout 后重试"
     )
+
+
+def _enter_charging(serial_port):
+    """RESET+OPEN → 持续 write response + STATUS 轮询确认进 CHARGING.
+
+    Returns the first heartbeat frame received (caller usually ignores it).
+    Reuses the pattern from test_i_ota._enter_charging: STATUS queries the
+    state machine directly so we don't have to wait a full 30s CHARGING
+    heartbeat period to confirm we left HANDSHAKING.
+    """
+    response = sgc_at.pack_heartbeat_response(
+        glass_soc=0x20, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION
+    )
+    _reset_open(serial_port)
+    serial_port.timeout = 0.1
+    deadline = time.time() + 10.0
+    last_status_query = 0.0
+    while time.time() < deadline:
+        serial_port.write(response)
+        time.sleep(0.15)
+        if time.time() - last_status_query < 0.5:
+            continue
+        last_status_query = time.time()
+        serial_port.reset_input_buffer()
+        sgc_at.reset_recv_buffer()
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack is None:
+            continue
+        st = sgc_at.parse_hil_status(ack)
+        if st["state"] in (2, 3):  # CHARGING or MAINTAINING
+            serial_port.reset_input_buffer()
+            sgc_at.reset_recv_buffer()
+            return
+    pytest.fail("10s 内 STATUS 未确认进 CHARGING/MAINTAINING")
+
+
+def test_b07_open_lid_heartbeat_30s(serial_port):
+    """B07: 开盖充电心跳周期 30s (SM_CHARGE_POLL_OPEN_MS).
+
+    进入 CHARGING 后清空 buffer，记录两次心跳间隔。预期 30s ±2s
+    (允许调度抖动)。SOC>15 走 CHARGING（30s），不是 MAINTAINING（<1.2s）。
+    """
+    _enter_charging(serial_port)
+
+    # 收两个心跳，测间隔。第一个心跳可能在 STATUS 之后立刻来（剩余 charge_poll
+    # 周期），所以从第一个心跳开始计时。
+    serial_port.timeout = 35.0
+    t1 = None
+    t2 = None
+    end = time.time() + 70.0
+    while time.time() < end:
+        f = sgc_at.recv_request(serial_port, timeout=35.0)
+        if f is None:
+            continue
+        if t1 is None:
+            t1 = time.time()
+        else:
+            t2 = time.time()
+            break
+    serial_port.timeout = 2.0
+
+    assert t1 is not None and t2 is not None, "70s 内未收到两个开盖心跳"
+    interval_ms = (t2 - t1) * 1000
+    assert 28000 < interval_ms < 32000, (
+        f"开盖心跳间隔 {interval_ms:.0f}ms，预期 30000±2000ms (SM_CHARGE_POLL_OPEN_MS)"
+    )

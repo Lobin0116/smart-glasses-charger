@@ -126,6 +126,93 @@ def test_c07_close_full_triggers_shutdown(serial_port):
     assert shutdown_frame is not None, "CLOSE+充满 后 15s 内未收到关机帧 0x3002"
 
 
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_c04_handshake_fail_30s_enters_force_charging(serial_port):
+    """C04: 握手失败 30s + 高电 → FORCE_CHARGING (SM_HANDSHAKE_TIMEOUT_MS).
+
+    OPEN 后完全不回响应，固件 3 次 retry × 100ms 间隔都失败，30s 后状态机
+    切到 FORCE_CHARGING。用 STATUS 直接查 state=4 (FORCE_CHARGING) 验证。
+    """
+    _reset_open(serial_port)
+    # 完全不回响应，等 30s+ 让 HANDSHAKE_TIMEOUT 触发。
+    # 时间预算 35s = 30s timeout + 5s 容错。
+    deadline = time.time() + 35.0
+    last_status_query = 0.0
+    reached_force = False
+    while time.time() < deadline:
+        # 周期性 flush + STATUS 查询。flush 是清 PC 端 buffer（固件发的 retry 心跳）。
+        if time.time() - last_status_query < 1.0:
+            serial_port.reset_input_buffer()
+            sgc_at.reset_recv_buffer()
+            continue
+        last_status_query = time.time()
+        serial_port.reset_input_buffer()
+        sgc_at.reset_recv_buffer()
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack is None:
+            continue
+        st = sgc_at.parse_hil_status(ack)
+        if st["state"] == 4:  # FORCE_CHARGING
+            reached_force = True
+            break
+    assert reached_force, "35s 内 STATUS 未确认固件进 FORCE_CHARGING"
+
+
+def test_c11_shutdown_retry_5_times(serial_port):
+    """C11: SHUTTING_DOWN 状态发 5 次 0x3002 关机帧 (SM_SHUTDOWN_RETRIES).
+
+    触发路径：OPEN + 充满 + CLOSE → SHUTTING_DOWN。固件每 SM_SHUTDOWN_GAP_MS
+    发一次关机指令，共 5 次。不回关机响应让固件跑完所有 retry。
+    """
+    _reset_open(serial_port)
+
+    # 阶段 1：握手 + 稳定到 CHARGING + 充满，持续回充满响应吃掉所有心跳
+    serial_port.timeout = 0.5
+    stabilize_end = time.time() + 6.0
+    while time.time() < stabilize_end:
+        frame = sgc_at.recv_request(serial_port, timeout=1.5)
+        if frame is None:
+            break
+        _send_full_response(serial_port)
+
+    # 阶段 2：CLOSE → 重新握手 → 关盖+满 → SHUTTING_DOWN
+    # 用 F02 的 STATUS-verified pattern 不适用（这里要触发 SHUTTING_DOWN），
+    # 沿用 C07 的 RSP+flush+CLOSE pattern。
+    serial_port.write(sgc_at.pack_heartbeat_response(
+        glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION))
+    serial_port.flush()
+    time.sleep(0.15)
+    serial_port.reset_input_buffer()
+    sgc_at.reset_recv_buffer()
+    sgc_at.send_command(serial_port, "CLOSE")
+
+    # 阶段 3：统计 0x3002 关机帧数量。SHUTDOWN_RETRY_GAP_MS 较短，总时长可控。
+    # 持续回充满响应让重新握手成功进 CHARGING+满+关盖 → SHUTTING_DOWN。
+    serial_port.timeout = 0.1
+    shutdown_frames = 0
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        frame = sgc_at.recv_request(serial_port, timeout=1.0)
+        if frame is None:
+            # 间隙回响应保持 CHARGING 稳态
+            serial_port.write(sgc_at.pack_heartbeat_response(
+                glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION))
+            continue
+        opcode = struct.unpack_from(">H", frame, 7)[0]
+        if opcode == OPCODE_SHUTDOWN:
+            shutdown_frames += 1
+            if shutdown_frames >= 5:
+                break
+        else:
+            # 心跳帧，回充满响应
+            _send_full_response(serial_port)
+
+    serial_port.timeout = 2.0
+    assert shutdown_frames >= 5, (
+        f"20s 内只收到 {shutdown_frames} 个关机帧，预期 ≥5 (SM_SHUTDOWN_RETRIES)"
+    )
+
+
 @pytest.mark.skip(reason="需 case_soc<=15 触发低电分支，当前 CW2017 报 254% — 见 memory cw2017-version-soc-anomaly")
 def test_c03_low_soc_enters_maintaining(serial_port):
     """C03: 握手成功 + 低电 → MAINTAINING（心跳 <1.2s）."""
