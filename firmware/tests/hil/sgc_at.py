@@ -50,9 +50,9 @@ OPCODE_HIL_STATUS = 0x3014
 OPCODE_HIL_SCAN = 0x3015
 OPCODE_HIL_OTA = 0x3016
 
-# HIL STATUS ACK payload (must match firmware hil_status_payload_t, 17 bytes).
+# HIL STATUS ACK payload (must match firmware hil_status_payload_t, 20 bytes).
 # All multi-byte fields big-endian.
-HIL_STATUS_FMT = ">BBBBBBBBBBBBBBBBB"
+HIL_STATUS_FMT = ">BBBBBBBBBBBBBBBBBBBB"
 
 AT_SUCCESS = 0x00
 
@@ -225,32 +225,51 @@ def pack_hil_command(opcode: int) -> bytes:
     return pack_request(opcode, bytes([ROLE_GLASS, ROLE_CASE]))
 
 
-def send_hil_command(ser, opcode: int, timeout: float = 5.0, retries: int = 5):
+def send_hil_command(ser, opcode: int, timeout: float = 1.5, retries: int = 8):
     """Send a HIL command and wait for its ACK (same opcode, RSP magic).
-    Returns the parsed ACK payload bytes, or None on timeout. Default timeout
-    is 5s so a command that lands while firmware is mid-handshake (which
-    blocks update_mode_poll ~1.5s per attempt) still gets its ACK during a
-    handshake gap — a 2s timeout straddles the gap edge and times out."""
-    for _ in range(retries):
+    Returns the parsed ACK payload bytes, or None on timeout.
+
+    Timeout/retry tradeoff: firmware main loop can block ~800ms in sm_do_handshake
+    (charge_flow synchronous), so update_mode_poll — which dispatches HIL commands
+    — may not service a command immediately. 1.5s × 8 retries = 12s worst case,
+    but a healthy ACK arrives within the first retry. The previous 5s × 5 design
+    wasted 5s on the first timeout before recovering, which inflated test times
+    and hid the real failure mode behind slow retries."""
+    import time as _t
+    op_name = {0x3010: "RESET", 0x3011: "OPEN", 0x3012: "CLOSE", 0x3013: "KEY",
+               0x3014: "STATUS", 0x3015: "SCAN", 0x3016: "OTA"}.get(opcode, f"0x{opcode:04X}")
+    for attempt in range(retries):
+        t_send = _t.time()
         ser.write(pack_hil_command(opcode))
         ser.flush()
-        end = time.time() + timeout
-        while time.time() < end:
-            f = recv_response(ser, timeout=1.0)
+        end = _t.time() + timeout
+        got_non_matching = 0
+        while _t.time() < end:
+            f = recv_response(ser, timeout=0.5)
             if f is None:
                 continue
             try:
                 p = parse_frame(f)
             except ValueError:
+                print(f"  [hil {op_name}] attempt {attempt+1}: CRC-fail frame {f.hex()[:20]}", flush=True)
                 continue
             if p["opcode"] == opcode and p["status"] == AT_SUCCESS:
+                elapsed = (_t.time() - t_send) * 1000
+                print(f"  [hil {op_name}] attempt {attempt+1}: ACK in {elapsed:.0f}ms", flush=True)
                 return p["payload"]
+            # Got a frame but wrong opcode/status — log it for diagnosis
+            print(f"  [hil {op_name}] attempt {attempt+1}: got opcode=0x{p['opcode']:04X} status=0x{p['status']:02X} (expected opcode=0x{opcode:04X} status=0)", flush=True)
+            got_non_matching += 1
+        # this retry timed out
+        print(f"  [hil {op_name}] attempt {attempt+1}: timeout after {(_t.time()-t_send)*1000:.0f}ms "
+              f"(non-matching frames: {got_non_matching})", flush=True)
+    print(f"  [hil {op_name}] ALL {retries} RETRIES EXHAUSTED", flush=True)
     return None
 
 
 def parse_hil_status(payload: bytes) -> dict:
-    """Unpack HIL STATUS ACK payload (17 bytes packed)."""
-    f = struct.unpack(HIL_STATUS_FMT, payload[:17])
+    """Unpack HIL STATUS ACK payload (20 bytes packed)."""
+    f = struct.unpack(HIL_STATUS_FMT, payload[:20])
     return {
         "ver": f[0], "soc_reg": f[1], "cfg": f[2],
         "sysclk_mhz": f[3], "ahb_mhz": f[4], "apb1_mhz": f[5],
@@ -260,6 +279,8 @@ def parse_hil_status(payload: bytes) -> dict:
         "ota_fails": (f[12] << 8) | f[13],
         "ota_fail_reason": f[14],
         "ota_succ_len": (f[15] << 8) | f[16],
+        "at_frame_fail_stage": f[17],
+        "at_frame_buf_bytes": (f[18] << 8) | f[19],
     }
 
 

@@ -180,7 +180,26 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
     serial_port.write(sgc_at.pack_prepare_response(0))
 
 
-@pytest.mark.flaky(reruns=3, reruns_delay=2)
+def _query_status_for_diag(serial_port):
+    """Query STATUS once and format the OTA-related fields for assertion
+    messages. Best-effort: returns a placeholder string if the query fails
+    so the assertion still fires with whatever info we have."""
+    try:
+        serial_port.reset_input_buffer()
+        sgc_at.reset_recv_buffer()
+        ack = sgc_at.send_command(serial_port, "STATUS")
+        if ack is None:
+            return "<no ACK>"
+        st = sgc_at.parse_hil_status(ack)
+        return (
+            f"state={st['state']} ota_idx={st['ota_index']} "
+            f"fails={st['ota_fails']} fail_reason={st['ota_fail_reason']} "
+            f"rxlen={st['ota_rxlen']} succ_len={st['ota_succ_len']}"
+        )
+    except Exception as exc:
+        return f"<status query failed: {exc}>"
+
+
 def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     """I02: push App.bin → case stages + resets → BL copies → new App runs.
 
@@ -228,18 +247,30 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
     serial_port.write(sgc_at.pack_heartbeat_response(
         glass_soc=0x20, glass_sta=0x00, case_version=new_version, ota_agree=True
     ))
+    print(f"[ota-trigger T+0ms] sent agree RSP, waiting for PREPARE", flush=True)
 
     # PREPARE → reply with image size.
     end = time.time() + 3.0
     prepare = None
+    seen_after_agree = []
+    t_prepare_start = time.time()
     while time.time() < end:
         f = sgc_at.recv_request(serial_port, timeout=1.0)
         if f is None:
             continue
+        try:
+            p = sgc_at.parse_frame(f)
+            seen_after_agree.append(f"op=0x{p['opcode']:04X} payload={p['payload'].hex()[:20]}")
+        except ValueError:
+            seen_after_agree.append(f"CRC-fail {f.hex()[:20]}")
         if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_PREPARE:
             prepare = f
             break
-    assert prepare is not None, "同意 OTA 后 3s 未收到 PREPARE"
+    assert prepare is not None, (
+        f"同意 OTA 后 3s 未收到 PREPARE，"
+        f"收到 {len(seen_after_agree)} 帧: {seen_after_agree[-5:]}, "
+        f"STATUS: {_query_status_for_diag(serial_port)}"
+    )
     serial_port.write(sgc_at.pack_prepare_response(len(fw)))
 
     # Stream firmware in 240-byte blocks; last block carries type=END.
@@ -270,7 +301,8 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
                 break
         assert read_req is not None, (
             f"未收到 READ index={index}（T+{(time.time()-t_stream_start)*1000:.0f}ms），"
-            f"等待期间看到: {diag_seen[-5:]}"
+            f"等待期间看到: {diag_seen[-5:]}, "
+            f"STATUS: {_query_status_for_diag(serial_port)}"
         )
         # Use the index from the REQ, not our counter — firmware may have retried
         # with a different index than we expect.
@@ -299,45 +331,76 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
         index += 1
 
     # Case sets staged + resets. BL copies Staging → App on next boot.
+    # BL copies ~27 KB at 8 MHz IRC: page erase + word program ≈ 1.5 s typical,
+    # 3 s worst case. 2 s sleep covers typical + App boot + CW2017 auto-burn
+    # self-check. If this turns out flaky we can push back to 2.5 s.
+    t_verify_start = time.time()
+
+    def _vlog(msg):
+        print(f"[verify T+{(time.time()-t_verify_start)*1000:6.0f}ms] {msg}", flush=True)
+
+    _vlog("close serial, wait for BL copy + App boot")
     serial_port.close()
-    time.sleep(2.5)  # BL copy + App boot
+    time.sleep(2.5)
+    _vlog("reopen serial")
     serial_port.open()
     serial_port.timeout = 0.1
 
     # Verification: RESET+OPEN the new App, send heartbeats carrying the new
-    # case_version. If running firmware matches (upgrade succeeded), no version
-    # mismatch → no auto-OTA → no bit7 heartbeat. If still old version,
-    # mismatch → ST_OTA entry → bit7 heartbeat appears.
+    # case_version, then query STATUS to confirm the state machine did NOT enter
+    # ST_OTA. If running firmware matches (upgrade succeeded), no version
+    # mismatch → no auto-OTA → state ends up CHARGING/MAINTAINING. If still old
+    # version, mismatch → ST_OTA entry → state=6.
     _flush_rx(serial_port)
-    sgc_at.send_command(serial_port, "RESET")
+    _vlog("send RESET")
+    ack = sgc_at.send_command(serial_port, "RESET")
+    _vlog(f"RESET ack={ack!r}")
     time.sleep(0.5)
     _flush_rx(serial_port)
-    sgc_at.send_command(serial_port, "OPEN")
+    _vlog("send OPEN")
+    ack = sgc_at.send_command(serial_port, "OPEN")
+    _vlog(f"OPEN ack={ack!r}")
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
+    _vlog(f"first frame after OPEN: {frame!r}")
     assert frame is not None, "新固件启动后 OPEN 未收到心跳"
 
     response = sgc_at.pack_heartbeat_response(
         glass_soc=0x20, glass_sta=0x00, case_version=new_version
     )
-    end = time.time() + 8.0
-    saw_bit7 = False
-    last_hb = None
-    while time.time() < end:
-        serial_port.write(response)
-        f = sgc_at.recv_request(serial_port, timeout=1.0)
-        if f is None:
-            continue
-        try:
-            p = sgc_at.parse_frame(f)
-        except ValueError:
-            continue
-        if p["opcode"] == sgc_at.OPCODE_CASE_HEART:
-            last_hb = p["payload"]
-            if p["payload"][3] & 0x80:
-                saw_bit7 = True
-                break
-    assert last_hb is not None, "8s 内未收到任何心跳响应"
-    assert not saw_bit7, (
+    # Send exactly ONE heartbeat response to the OPEN-triggered REQ. This lets
+    # the firmware complete the handshake and enter CHARGING (state=2), which
+    # is what we need to detect version mismatch (CHARGING → if mismatch, sm_tick
+    # sets ota_requested and transitions to ST_OTA on the next tick).
+    #
+    # DO NOT loop-send responses: firmware is in CHARGING with 30s heartbeat
+    # period, so it consumes only ONE response and the rest pile up in its RX
+    # buffer. Subsequent HIL commands (STATUS) sit behind the stale RSPs and
+    # update_mode_poll never reaches them (it peeks opcode, sees HEARTBEAT =
+    # production frame, breaks to leave it for charge_poll).
+    _vlog("send 1 heartbeat response to complete handshake")
+    serial_port.write(response)
+    serial_port.flush()
+    time.sleep(0.5)  # give firmware time to consume + sm_tick to detect version
+
+    # Final state check via STATUS. state=6 (OTA) means version mismatch →
+    # upgrade failed. state=2/3 (CHARGING/MAINTAINING) means version match →
+    # upgrade succeeded.
+    _flush_rx(serial_port)
+    _vlog("send STATUS")
+    ack = sgc_at.send_command(serial_port, "STATUS")
+    if ack is None:
+        _vlog("STATUS: no ACK!")
+    else:
+        st = sgc_at.parse_hil_status(ack)
+        _vlog(f"STATUS: state={st['state']} case_soc={st['case_soc']} "
+              f"ota_fail_reason={st['ota_fail_reason']} "
+              f"at_frame_stage={st['at_frame_fail_stage']} "
+              f"at_frame_buf={st['at_frame_buf_bytes']}")
+    assert ack is not None, "STATUS 命令无 ACK"
+    st = sgc_at.parse_hil_status(ack)
+    _STATE_OTA = 6
+    assert st["state"] != _STATE_OTA, (
         f"升级失败：新固件仍报告旧版本（PC 发 case_version={new_version:#x} "
-        f"触发自动 OTA）。最后一帧 payload={last_hb.hex()}"
+        f"触发自动 OTA，state=OTA）。STATUS={st}"
     )
+    _vlog("verification passed")
