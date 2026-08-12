@@ -13,7 +13,6 @@ typedef enum
     LED_EFFECT_GLASS_CHARGING_BREATH,
     LED_EFFECT_FULL_SOLID,
     LED_EFFECT_BATTERY_DISPLAY,
-    LED_EFFECT_LOW_BATT_BLINK,
 } led_effect_id_t;
 
 typedef struct

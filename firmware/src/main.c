@@ -114,7 +114,8 @@ int main(void)
 
     /* CW2017 SOC engine needs settling time after the quickstart triggered in
      * cw2017_init(); reading it immediately returns a transitional 0, which
-     * would set sm.case_soc=0 and trigger spurious LOW_BATT_BLINK. */
+     * would set sm.case_soc=0 and force the low-SOC path (MAINTAINING instead
+     * of CHARGING on next handshake). */
     hal_timer_delay_ms(500);
 
     refresh_case_status();
