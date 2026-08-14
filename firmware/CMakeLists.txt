@@ -35,7 +35,7 @@ option(HIL_TEST "Enable HIL test hooks (USART OPEN/CLOSE/KEY/RESET commands, no 
 
 set(MCU_FLAGS "-mcpu=cortex-m23 -mthumb")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections -gdwarf-2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -Os -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections -gdwarf-2")
 set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${MCU_FLAGS} -x assembler-with-cpp")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${CMAKE_SOURCE_DIR}/startup/gd32e230x8_flash.ld -Wl,--gc-sections -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map --specs=nano.specs --specs=nosys.specs")
 
