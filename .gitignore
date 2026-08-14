@@ -1,6 +1,7 @@
 # Build outputs
 build/
 build_hil/
+build_prod/
 build_verify/
 *.o
 *.elf

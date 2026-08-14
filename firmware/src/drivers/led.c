@@ -5,12 +5,24 @@
 #include "led.h"
 
 /* Breath is a software PWM: a 20 ms carrier (50 Hz, flicker-free) sliced into
- * LED_PWM_STEPS duty levels, with the duty ramped over a 2 s triangle so the
- * perceived brightness glows 0->100->0. Blink is a plain 1 Hz toggle. */
+ * LED_PWM_STEPS duty levels, with the duty ramped over a triangle so the
+ * perceived brightness glows min->max->min. Blink is a plain 1 Hz toggle.
+ * Breath period is 1.5 s — short enough that the trough doesn't linger
+ * (smoother perceived fade) but long enough to read as a breath, not a pulse. */
 #define LED_PWM_PERIOD_MS    20U
 #define LED_PWM_STEPS        20U
-#define LED_BREATH_PERIOD_MS 2000U
+#define LED_BREATH_PERIOD_MS 1500U
 #define LED_BLINK_PERIOD_MS  1000U
+
+/* Breath duty is clamped to [MIN, MAX] instead of [0, LED_PWM_STEPS]:
+ *  - MIN keeps the LED visibly lit at the trough so the cycle never looks
+ *    "off → suddenly on" (human eye can't see the bottom of a 0→N ramp, the
+ *    fade appears to stutter).
+ *  - MAX caps peak brightness so the cycle doesn't feel harsh at the top.
+ * Tuned quite dim: 10% trough, 50% peak — subtle glow, won't light up a
+ * dark room. */
+#define LED_BREATH_DUTY_MIN 2U   /* 2/20 = 10% — dim but visible at trough */
+#define LED_BREATH_DUTY_MAX 10U  /* 10/20 = 50% — soft peak */
 
 typedef struct
 {
@@ -53,14 +65,20 @@ static void led_apply(led_state_t *state, led_color_t color, bool on)
     }
 }
 
-/* Triangle wave mapping one breath period to a 0..LED_PWM_STEPS duty. */
+/* Triangle wave mapping one breath period to a LED_BREATH_DUTY_MIN..MAX duty.
+ * The triangle goes 0→STEPS→0 in one period; we then linearly map that into
+ * the [MIN, MAX] window so the LED stays visibly lit at the trough. */
 static uint32_t led_breath_duty(uint32_t phase_ms)
 {
     uint32_t half = LED_BREATH_PERIOD_MS / 2U;
+    uint32_t progress;
     if (phase_ms < half) {
-        return (phase_ms * LED_PWM_STEPS) / half;
+        progress = (phase_ms * LED_PWM_STEPS) / half;
+    } else {
+        progress = ((LED_BREATH_PERIOD_MS - phase_ms) * LED_PWM_STEPS) / half;
     }
-    return ((LED_BREATH_PERIOD_MS - phase_ms) * LED_PWM_STEPS) / half;
+    return LED_BREATH_DUTY_MIN
+           + (progress * (LED_BREATH_DUTY_MAX - LED_BREATH_DUTY_MIN)) / LED_PWM_STEPS;
 }
 
 void led_init(void)
