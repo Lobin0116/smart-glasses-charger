@@ -23,8 +23,14 @@
     #include "update_mode.h"
 #endif
 
-#define SOC_REFRESH_MS   5000U
-#define EXTI_DEBOUNCE_MS 20U
+#define SOC_REFRESH_MS   500U   /* IP5353/CW2017 status poll interval.
+                                 * 500 ms balances responsiveness (charge full,
+                                 * NTC trip, USB unplug → sleep all show up
+                                 * within half a second) against I2C traffic
+                                 * (~1 ms per read, negligible vs Deep-Sleep
+                                 * savings). CHAGER_INT EXTI is the primary
+                                 * trigger; this is the safety-net poll. */
+#define EXTI_DEBOUNCE_MS 20U    /* KEY only — HALL is polled by sm_tick. */
 
 led_effect_ctx_t g_led_ctx;
 
@@ -34,14 +40,37 @@ sm_ctx_t sm;
 static sm_ctx_t sm;
 #endif
 static uint32_t last_soc_refresh;
+/* KEY still uses an EXTI event queue (the button needs debounce, and the
+ * EXTI→button_on_press path was already working). HALL no longer uses this
+ * queue — sm_tick polls hal_hall_get() directly at the top of each call. The
+ * other EXTI sources (CHARGER/BAT/COIL) only need to wake the main loop so
+ * refresh_case_status runs; exti_woken covers that and their pending bits
+ * are cleared without any handler. */
 static volatile uint8_t exti_pending;
 static volatile uint32_t exti_last_trigger_ms[16];
+static volatile bool exti_woken;
 
 static void exti_callback(uint8_t line)
 {
     if (line < 16U) {
-        exti_pending |= (uint8_t)(1U << line);
-        exti_last_trigger_ms[line] = hal_timer_get_ms();
+        /* Only KEY needs the pending-bit + debounce path. HALL is sampled by
+         * sm_tick on every call, so its edges don't need to be queued (and
+         * queuing them caused the "single motion lost, repeated motion seen"
+         * bug, because handshake blocking collapsed multiple edges into one
+         * queue bit). CHARGER/BAT/COIL just need exti_woken. */
+        if (line == HAL_EXTI_LINE_KEY) {
+            uint8_t mask = (uint8_t)(1U << line);
+            if ((exti_pending & mask) == 0U) {
+                exti_last_trigger_ms[line] = hal_timer_get_ms();
+            }
+            exti_pending |= mask;
+        } else if (line == HAL_EXTI_LINE_HALL) {
+            /* Tag the edge so sm_tick re-runs the lid path even if the level
+             * ended up where it started (close+open inside one handshake
+             * burst — pure level polling would miss it). */
+            sm.hall_edge_seen = true;
+        }
+        exti_woken = true;
     }
 }
 
@@ -52,17 +81,17 @@ static void process_exti_events(void)
     }
     uint32_t now = hal_timer_get_ms();
 
-    if ((exti_pending & (1U << HAL_EXTI_LINE_HALL))
-        && (now - exti_last_trigger_ms[HAL_EXTI_LINE_HALL] >= EXTI_DEBOUNCE_MS)) {
-        exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_HALL);
-        sm_handle_event(&sm, HAL_EXTI_LINE_HALL);
-    }
-
     if ((exti_pending & (1U << HAL_EXTI_LINE_KEY))
         && (now - exti_last_trigger_ms[HAL_EXTI_LINE_KEY] >= EXTI_DEBOUNCE_MS)) {
         exti_pending &= (uint8_t)~(1U << HAL_EXTI_LINE_KEY);
         button_on_press();
     }
+
+    /* CHARGER_INT / BAT_INT / COIL_INT only needed to wake the loop; their
+     * bits (if ever set, which is rare on this board) are dropped here. */
+    exti_pending &= (uint8_t)~((1U << HAL_EXTI_LINE_CHARGER_INT)
+                               | (1U << HAL_EXTI_LINE_BAT_INT)
+                               | (1U << HAL_EXTI_LINE_COIL_INT));
 }
 
 static void refresh_case_status(void)
@@ -100,14 +129,11 @@ int main(void)
     button_init();
     hal_pwr_idle();
 
-    /* Drop spurious EXTI edges captured during power-rail settling so the
-     * firmware does not enter HANDSHAKING on a phantom lid event. */
+    /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;
 #ifdef HIL_TEST
-    /* HIL tests drive lid state via OPEN/CLOSE commands (sm_inject_lid_event),
-     * so disable the physical HALL EXTI. A bouncing HALL sensor otherwise
-     * traps firmware in a handshake → FORCE_CHARGING loop that starves
-     * update_mode_poll and prevents OPEN from triggering a fresh handshake. */
+    /* HIL tests drive lid state via OPEN/CLOSE commands (hal_hall_set_mock),
+     * so disable the physical HALL EXTI — the test PC will set the level. */
     exti_interrupt_disable(EXTI_4);
     exti_interrupt_flag_clear(EXTI_4);
 #endif
@@ -124,6 +150,16 @@ int main(void)
     hal_wwdgt_feed();
 
     while (1) {
+        /* EXTI wake-up: re-read charge/SOC state immediately so the state
+         * machine sees the new world before deciding whether to sleep again.
+         * Without this, a USB-plug wake would see the stale pre-sleep
+         * case_charging=false and go right back to Deep-Sleep. */
+        if (exti_woken) {
+            exti_woken = false;
+            refresh_case_status();
+            button_set_case_soc(sm.case_soc);
+            last_soc_refresh = hal_timer_get_ms();
+        }
         process_exti_events();
 #ifdef HIL_TEST
         /* update_mode_poll runs before sm_tick so injected commands (OPEN/CLOSE/
@@ -142,5 +178,14 @@ int main(void)
         }
 
         hal_wwdgt_feed();
+
+#ifndef HIL_TEST
+        /* Gate sleep on exti_pending so a KEY edge that fired this iteration
+         * (20 ms debounce not yet elapsed) is not lost. HALL doesn't need
+         * this gate — sm_tick re-samples hal_hall_get() on every wake. */
+        if (sm_can_sleep(&sm) && exti_pending == 0U) {
+            pm_enter_deep_sleep();
+        }
+#endif
     }
 }

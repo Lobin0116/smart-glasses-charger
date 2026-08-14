@@ -11,6 +11,7 @@
 #include "hal_pwr.h"
 #include "hal_timer.h"
 #include "led_effect.h"
+#include "button.h"
 #include "ota_flow.h"
 #include "power_mgmt.h"
 
@@ -43,9 +44,6 @@
 /* Timestamp of the last paced action within the current state. Reset on every
  * transition so each state paces its first action from its own entry. */
 static uint32_t sm_last_action_ms;
-
-static volatile bool sm_lid_event_pending;
-static volatile bool sm_lid_open_val;
 
 /* State to resume when OTA completes. */
 static sm_state_t sm_prev_state;
@@ -204,6 +202,25 @@ static void sm_tick_ota(sm_ctx_t *ctx, uint32_t now)
     }
 }
 
+bool sm_can_sleep(const sm_ctx_t *ctx)
+{
+#ifdef HIL_TEST
+    return false;
+#else
+    if (ctx->state != ST_IDLE) {
+        return false;
+    }
+    if (g_led_ctx.case_charging
+        || g_led_ctx.glass_charging
+        || g_led_ctx.overlay != LED_EFFECT_NONE
+        || g_led_ctx.current == LED_EFFECT_FULL_SOLID
+        || button_is_busy()) {
+        return false;
+    }
+    return true;
+#endif
+}
+
 void sm_init(sm_ctx_t *ctx)
 {
     uint32_t now = hal_timer_get_ms();
@@ -212,7 +229,6 @@ void sm_init(sm_ctx_t *ctx)
     ctx->state_enter_ms = now;
     ctx->last_comms_ms = now;
     ctx->retry_count = 0U;
-    ctx->lid_open = hal_hall_get();
     ctx->glass_present = false;
     ctx->glass_soc = 0U;
     ctx->case_soc = 0U;
@@ -223,30 +239,52 @@ void sm_init(sm_ctx_t *ctx)
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;
-    sm_lid_event_pending = false;
+    /* Seed lid_open=false so the first sm_tick samples hal_hall_get() and,
+     * if the lid is open at boot, detects a real false→true transition and
+     * runs the open path (HANDSHAKING + show_battery). If the lid is closed
+     * at boot, hal_hall_get()==false matches ctx->lid_open==false and no
+     * event fires — the machine goes straight to Deep-Sleep as expected. */
+    ctx->lid_open = false;
+    ctx->hall_edge_seen = false;
 }
 
 void sm_tick(sm_ctx_t *ctx)
 {
     uint32_t now = hal_timer_get_ms();
 
-    /* Process deferred lid event from ISR (avoids g_led_ctx race). */
-    if (sm_lid_event_pending) {
-        sm_lid_event_pending = false;
-        ctx->lid_open = sm_lid_open_val;
-        if (ctx->lid_open) {
+    /* Poll HALL level and dispatch on change. This runs BEFORE the state-
+     * specific tick (which may block in sm_do_handshake for ~1.1 s), so a
+     * lid transition that arrived during sleep is observed and handled on
+     * the first post-wake sm_tick. No EXTI event queue, no debounce, no
+     * sm_handle_event: the Schmitt-trigger HALL output is a clean level, we
+     * just sample it each tick.
+     *
+     * The level compare alone misses the case where the magnet did a full
+     * close+open round-trip INSIDE one handshake burst — the level ends up
+     * where it started, so `now_open == ctx->lid_open`, but the user very
+     * much actuated the lid. The ISR sets hall_edge_seen on every HALL edge
+     * (it can fire during the handshake block), so we also force the open
+     * path to re-run when an edge was seen, regardless of level delta. */
+    bool now_open = hal_hall_get();
+    if (ctx->hall_edge_seen || now_open != ctx->lid_open) {
+        ctx->hall_edge_seen = false;
+        ctx->lid_open = now_open;
+        if (now_open) {
             if (ctx->state == ST_IDLE) {
                 sm_enter_state(ctx, ST_HANDSHAKING);
             }
             led_effect_show_battery(&g_led_ctx, ctx->case_soc);
         } else {
-            if (ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING) {
-                if (ctx->glass_present) {
-                    sm_enter_state(ctx, ST_HANDSHAKING);
-                } else {
-                    led_effect_show_battery(&g_led_ctx, ctx->case_soc);
-                }
-            } else if (ctx->state == ST_IDLE) {
+            /* Lid closed: per CONTEXT.md line 163 ("查看电量(开盖/关盖):
+             * 对应颜色长亮7s灭") any close edge shows the battery for 7 s,
+             * regardless of state. The only exception is close-during-charge
+             * with glass present — that switches the heartbeat cadence (30 s
+             * open → 60 s closed) and so must re-handshake instead of
+             * showing the battery. */
+            if ((ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING)
+                && ctx->glass_present) {
+                sm_enter_state(ctx, ST_HANDSHAKING);
+            } else {
                 led_effect_show_battery(&g_led_ctx, ctx->case_soc);
             }
         }
@@ -257,7 +295,28 @@ void sm_tick(sm_ctx_t *ctx)
 #ifdef HIL_TEST
             break;
 #else
-            pm_enter_deep_sleep();
+            /* Stay awake while the LED or button needs active polling — Deep-Sleep
+             * freezes led_poll (software PWM) and the button debounce timer:
+             *  - charging (case or glass) drives a BREATH effect that needs PWM
+             *  - any active overlay (button/lid battery display, 7 s) needs PWM
+             *    and a running timer to expire the overlay
+             *  - FULL_SOLID (case+glass full) needs to stay lit
+             *  - button debounce/held needs the timer to advance and the poll
+             *    to eventually fire led_effect_show_battery on release
+             * The actual pm_enter_deep_sleep() call is in main.c, which can also
+             * gate on exti_pending — without that, a single-edge wake source
+             * like HALL (no switch bounce) gets stuck: the wake fires, the
+             * 20 ms debounce in process_exti_events hasn't elapsed on the first
+             * loop pass, so sm_lid_event_pending stays false, this ST_IDLE
+             * branch sees nothing-to-do and sleeps again before the event is
+             * ever dispatched — the lid event is lost forever. */
+            if (g_led_ctx.case_charging
+                || g_led_ctx.glass_charging
+                || g_led_ctx.overlay != LED_EFFECT_NONE
+                || g_led_ctx.current == LED_EFFECT_FULL_SOLID
+                || button_is_busy()) {
+                break;
+            }
             break;
 #endif
         case ST_HANDSHAKING:
@@ -283,29 +342,6 @@ void sm_tick(sm_ctx_t *ctx)
             break;
     }
 }
-
-void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line)
-{
-    (void)ctx;
-    switch (exti_line) {
-        case HAL_EXTI_LINE_HALL:
-            sm_lid_open_val = hal_hall_get();
-            sm_lid_event_pending = true;
-            break;
-        case HAL_EXTI_LINE_KEY:
-            break;
-        default:
-            break;
-    }
-}
-
-#ifdef HIL_TEST
-void sm_inject_lid_event(bool lid_open)
-{
-    sm_lid_open_val = lid_open;
-    sm_lid_event_pending = true;
-}
-#endif
 
 const char *sm_state_name(sm_state_t state)
 {

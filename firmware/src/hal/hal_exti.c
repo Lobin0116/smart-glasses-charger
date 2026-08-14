@@ -14,7 +14,13 @@ typedef struct
 
 static const hal_exti_src_t exti_sources[] = {
     {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN8, HAL_EXTI_LINE_BAT_INT, EXTI_TRIG_FALLING},
-    {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN11, HAL_EXTI_LINE_CHARGER_INT, EXTI_TRIG_FALLING},
+    /* CHARGER_INT (IP5353 INT, PA11): pin is high-Z in standby and driven
+     * HIGH when IP5353 is working (see hal_gpio.c — PA11 has an internal
+     * pull-DOWN). With that, USB plug produces a rising edge (high-Z->HIGH)
+     * and USB unplug produces a falling edge (HIGH->high-Z pulled low).
+     * BOTH wakes the main loop on either so refresh_case_status runs and
+     * the state machine sees the new IP5353 input_valid state. */
+    {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN11, HAL_EXTI_LINE_CHARGER_INT, EXTI_TRIG_BOTH},
     {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN12, HAL_EXTI_LINE_COIL_INT, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN3, HAL_EXTI_LINE_KEY, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN4, HAL_EXTI_LINE_HALL, EXTI_TRIG_BOTH},

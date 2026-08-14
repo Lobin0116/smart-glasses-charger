@@ -3,6 +3,13 @@
 #include "gd32e23x.h"
 #include "hal_gpio.h"
 
+/* Provided by the CMSIS startup file. Re-running it after a Deep-Sleep wake
+ * is the documented way to restore the PLL: with PMU_LDO_LOWPOWER the part
+ * drops to IRC8M while asleep and the PLL is off on wake, so every clock-
+ * dependent peripheral (SysTick reload, USART baud, I2C timing) would be
+ * wrong by the 8 MHz / 72 MHz ratio until we re-arm the PLL. */
+extern void SystemInit(void);
+
 void pm_enter_deep_sleep(void)
 {
     rcu_periph_clock_enable(RCU_PMU);
@@ -15,11 +22,20 @@ void pm_enter_deep_sleep(void)
     exti_interrupt_flag_clear(EXTI_12);
     exti_interrupt_flag_clear(EXTI_3);
 
-    pmu_to_deepsleepmode(PMU_LDO_NORMAL, WFI_CMD);
+    /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
+     * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
+     * while the CPU is asleep, hits its 20 ms window, and resets the part —
+     * the symptom is a ~25 Hz white LED strobe (boot LED init → sleep → WWDGT
+     * reset → repeat). PMU_LDO_NORMAL keeps the APB1 clock running for faster
+     * wake-up, but at the cost of that watchdog reset loop. Wake-up latency
+     * is a few hundred us longer with LOWPOWER, acceptable for a charger. */
+    pmu_to_deepsleepmode(PMU_LDO_LOWPOWER, WFI_CMD);
 
-    /* After wake-up the core clock may have switched back to the internal 8 MHz
-     * IRC. The caller (main loop) continues normally; SystemCoreClock is still
-     * valid because Deep-Sleep preserves SRAM and registers. */
+    /* Re-arm PLL and refresh SystemCoreClock so SysTick/USART/I2C keep their
+     * pre-sleep frequencies. Without this the wake-side code runs at 8 MHz
+     * IRC and every baud/timing calculation is off by 9x. */
+    SystemInit();
+    SystemCoreClockUpdate();
 }
 
 void pm_enter_standby(void)

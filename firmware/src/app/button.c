@@ -33,6 +33,11 @@ void button_init(void)
 
 void button_on_press(void) { btn_raw_pressed = true; }
 
+bool button_is_busy(void)
+{
+    return btn_state != BTN_IDLE;
+}
+
 void button_poll(void)
 {
     uint32_t now = hal_timer_get_ms();

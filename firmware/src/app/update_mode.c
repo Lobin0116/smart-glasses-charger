@@ -51,19 +51,21 @@ static void handle_hil_reset(void)
     sm.ota_requested = false;
     sm.reported_case_version = 0U;
     sm.lid_open = false;
-    sm_inject_lid_event(false); /* clear any pending lid event */
+    hal_hall_set_mock(false); /* test PC starts with lid closed */
     send_hil_ack(AT_OPCODE_HIL_RESET, AT_SUCCESS, NULL, 0U);
 }
 
 static void handle_hil_open(void)
 {
-    sm_inject_lid_event(true);
+    /* sm_tick polls hal_hall_get() at the top of each call; setting the mock
+     * is enough — the next tick picks up the change and runs the open path. */
+    hal_hall_set_mock(true);
     send_hil_ack(AT_OPCODE_HIL_OPEN, AT_SUCCESS, NULL, 0U);
 }
 
 static void handle_hil_close(void)
 {
-    sm_inject_lid_event(false);
+    hal_hall_set_mock(false);
     send_hil_ack(AT_OPCODE_HIL_CLOSE, AT_SUCCESS, NULL, 0U);
 }
 

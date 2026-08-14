@@ -7,9 +7,10 @@
 #include "led_effect.h"
 
 /* Application run state machine. The charger case is a bare-metal super-loop,
- * so every state is a small non-blocking step driven from sm_tick(). External
- * edges (lid open, charge IRQs) reach the machine through sm_handle_event(); the
- * slow periodic work (heartbeat polling, retries) happens in sm_tick(). */
+ * so every state is a small non-blocking step driven from sm_tick(). The lid
+ * level is polled at the top of each sm_tick by reading hal_hall_get() — EXTI
+ * is wake-only, no event queue. Slow periodic work (heartbeat polling,
+ * retries) also happens in sm_tick(). */
 
 typedef enum
 {
@@ -38,6 +39,12 @@ typedef struct
     bool ota_requested;
     uint8_t reported_case_version; /* mirrored by glasses via at_glass_data.case_version */
     uint32_t last_soc_refresh_ms;
+    /* Set by the HALL EXTI ISR (any edge), cleared by sm_tick once it has
+     * re-sampled the level. Decouples "an edge happened" from "the level
+     * changed": a close+open contained inside one ~1.1 s handshake burst
+     * leaves the pin level unchanged but the user clearly actuated the lid,
+     * so we must still run the open path. */
+    volatile bool hall_edge_seen;
 } sm_ctx_t;
 
 extern led_effect_ctx_t g_led_ctx;
@@ -48,17 +55,10 @@ void sm_init(sm_ctx_t *ctx);
 /* Advance the machine one step. Call from the main loop. */
 void sm_tick(sm_ctx_t *ctx);
 
-/* Dispatch an EXTI edge. Called from the EXTI ISR callback; transitions that
- * depend on the edge (lid open out of IDLE) run here, while the heavy periodic
- * work stays in sm_tick(). */
-void sm_handle_event(sm_ctx_t *ctx, uint8_t exti_line);
-
-#ifdef HIL_TEST
-/* Test hook: inject a lid event as if the Hall sensor fired with the given
- * level. Bypasses EXTI entirely so tests can drive the state machine over
- * UART without a physical magnet. */
-void sm_inject_lid_event(bool lid_open);
-#endif
+/* True only when the machine is in ST_IDLE and nothing else needs the main loop
+ * (no LED overlay, no charging breath, no button debounce). The caller uses
+ * this to decide whether to enter Deep-Sleep. */
+bool sm_can_sleep(const sm_ctx_t *ctx);
 
 /* State name for debug logging. */
 const char *sm_state_name(sm_state_t state);

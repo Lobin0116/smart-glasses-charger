@@ -50,4 +50,11 @@ bool hal_bat_int_get(void);
 bool hal_charger_int_get(void);
 bool hal_coil_int_get(void);
 
+#ifdef HIL_TEST
+/* Test-only: override the HALL level that hal_hall_get reports, so HIL tests
+ * can drive lid transitions over UART without a physical magnet. The mock is
+ * only consulted under HIL_TEST; the production build reads the real pad. */
+void hal_hall_set_mock(bool open);
+#endif
+
 #endif /* HAL_GPIO_H */

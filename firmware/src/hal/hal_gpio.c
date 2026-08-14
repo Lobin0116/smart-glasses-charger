@@ -1,5 +1,13 @@
 #include "hal_gpio.h"
 
+#ifdef HIL_TEST
+/* Mock HALL state for HIL tests. Default closed (matches cold-boot with the
+ * lid shut — the common starting point for tests). */
+static bool hall_mock_open = false;
+
+void hal_hall_set_mock(bool open) { hall_mock_open = open; }
+#endif
+
 typedef struct
 {
     uint32_t port;
@@ -61,8 +69,19 @@ void hal_gpio_init(void)
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
 
-    /* Interrupt inputs with pull-up. */
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_8 | GPIO_PIN_11 | GPIO_PIN_12);
+    /* BAT_INT (CW2017 ALARM, PA8) and COIL_INT (MT5706, PA12): push-pull or
+     * open-drain outputs that assert low; pull-up gives a defined idle level. */
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_8 | GPIO_PIN_12);
+
+    /* CHARGER_INT (IP5353 INT, PA11): per IP5353 datasheet the pin is high-Z
+     * while the chip is in standby and driven HIGH (push-pull) while working.
+     * A pull-UP masks the standby->working transition (both states read high
+     * through the pull-up), so USB plug would never produce an edge to wake
+     * the MCU. A pull-DOWN instead yields:
+     *   standby (high-Z) -> PA11 = LOW
+     *   working (push-pull HIGH) -> PA11 = HIGH
+     * so USB plug produces a clean rising edge that EXTI can latch. */
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLDOWN, GPIO_PIN_11);
 
     /* I2C0: PB6 SCL / PB7 SDA, AF1 open-drain with pull-up. */
     gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
@@ -156,7 +175,14 @@ bool hal_key_pressed(void)
 
 bool hal_key_get(void) { return hal_gpio_get(HAL_PIN_KEY); }
 
-bool hal_hall_get(void) { return hal_gpio_get(HAL_PIN_HALL); }
+bool hal_hall_get(void)
+{
+#ifdef HIL_TEST
+    return hall_mock_open;
+#else
+    return hal_gpio_get(HAL_PIN_HALL);
+#endif
+}
 
 bool hal_bat_int_get(void) { return hal_gpio_get(HAL_PIN_BAT_INT); }
 

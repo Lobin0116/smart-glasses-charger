@@ -129,9 +129,8 @@ static void test_lid_open_starts_handshake(void)
     sm_ctx_t ctx;
     reset_sm(&ctx);
     mock_hall_state = true;
-    sm_handle_event(&ctx, 4);
-    sm_tick(&ctx); /* deferred processing in main loop */
-    TEST_ASSERT(ctx.lid_open, "Lid should be open after HALL event");
+    sm_tick(&ctx); /* sm_tick polls hal_hall_get() at the top of each call */
+    TEST_ASSERT(ctx.lid_open, "Lid should be open after HALL level change");
     TEST_ASSERT_EQ(ctx.state, ST_HANDSHAKING, "Should enter handshaking");
 }
 
