@@ -49,6 +49,7 @@ OPCODE_HIL_KEY = 0x3013
 OPCODE_HIL_STATUS = 0x3014
 OPCODE_HIL_SCAN = 0x3015
 OPCODE_HIL_OTA = 0x3016
+OPCODE_HIL_CHG_DIAG = 0x3017
 
 # HIL STATUS ACK payload (must match firmware hil_status_payload_t, 20 bytes).
 # All multi-byte fields big-endian.
@@ -237,7 +238,8 @@ def send_hil_command(ser, opcode: int, timeout: float = 1.5, retries: int = 8):
     and hid the real failure mode behind slow retries."""
     import time as _t
     op_name = {0x3010: "RESET", 0x3011: "OPEN", 0x3012: "CLOSE", 0x3013: "KEY",
-               0x3014: "STATUS", 0x3015: "SCAN", 0x3016: "OTA"}.get(opcode, f"0x{opcode:04X}")
+               0x3014: "STATUS", 0x3015: "SCAN", 0x3016: "OTA",
+               0x3017: "CHG_DIAG"}.get(opcode, f"0x{opcode:04X}")
     for attempt in range(retries):
         t_send = _t.time()
         ser.write(pack_hil_command(opcode))

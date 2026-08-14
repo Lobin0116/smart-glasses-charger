@@ -21,6 +21,7 @@ typedef enum
     AT_OPCODE_HIL_STATUS = 0x3014,
     AT_OPCODE_HIL_SCAN = 0x3015,
     AT_OPCODE_HIL_OTA = 0x3016,
+    AT_OPCODE_HIL_CHG_DIAG = 0x3017,
 } at_opcode_e;
 
 #endif /* AT_OPCODE_H */

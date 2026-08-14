@@ -10,9 +10,11 @@
     #include "button.h"
     #include "gd32e23x.h"
     #include "hal_i2c.h"
+    #include "hal_gpio.h"
     #include "hal_timer.h"
     #include "hal_usart.h"
     #include "hal_wwdgt.h"
+    #include "mt5706.h"
     #include "state_machine.h"
 
 extern sm_ctx_t sm;
@@ -154,6 +156,78 @@ static void handle_hil_scan(void)
     send_hil_ack(AT_OPCODE_HIL_SCAN, AT_SUCCESS, addrs, n);
 }
 
+/* Wireless-charge bring-up diagnosis. Registers mirror the drivers:
+ * IP5353 status addr 0x75 (SYS_STATE0 0x45 / SYS_STATE2 0x50 / SYS_STATE5
+ * 0x69, see ip5353.h), CW2017 addr 0x63 (VCELL 0x02-03 / SOC 0x04 /
+ * VERSION 0x00 / CONFIG 0x08, see cw2017.c). All reads are RAW
+ * (hal_i2c_read_reg) — deliberately bypassing ip5353_ensure_ready's 100 ms
+ * INT-settle wait and the driver bitfield decoding, so the PC sees exactly
+ * what is on the bus at poll time, including failures (ok bits = 0 and
+ * data bytes latched to 0xFF). Used to diff a case that fails to start
+ * wireless charging against one that works. */
+static void handle_hil_chg_diag(void)
+{
+    uint8_t ip_state0 = 0xFFU, ip_state2 = 0xFFU, ip_state5 = 0xFFU;
+    uint8_t ip_ntc = 0xFFU;
+    uint8_t cw_vcell[2] = {0xFFU, 0xFFU};
+    uint8_t cw_soc = 0xFFU, cw_ver = 0xFFU, cw_cfg = 0xFFU;
+    uint8_t ok = 0U;
+
+    if (hal_i2c_read_reg(0x75U, 0x45U, &ip_state0, 1U) == 0) {
+        ok |= 0x01U;
+    }
+    if (hal_i2c_read_reg(0x75U, 0x50U, &ip_state2, 1U) == 0) {
+        ok |= 0x02U;
+    }
+    if (hal_i2c_read_reg(0x75U, 0x69U, &ip_state5, 1U) == 0) {
+        ok |= 0x04U;
+    }
+    if (hal_i2c_read_reg(0x75U, 0x6FU, &ip_ntc, 1U) == 0) {
+        ok |= 0x80U;
+    }
+    if (hal_i2c_read_reg(0x63U, 0x02U, cw_vcell, 2U) == 0) {
+        ok |= 0x08U;
+    }
+    if (hal_i2c_read_reg(0x63U, 0x04U, &cw_soc, 1U) == 0) {
+        ok |= 0x10U;
+    }
+    if (hal_i2c_read_reg(0x63U, 0x00U, &cw_ver, 1U) == 0) {
+        ok |= 0x20U;
+    }
+    if (hal_i2c_read_reg(0x63U, 0x08U, &cw_cfg, 1U) == 0) {
+        ok |= 0x40U;
+    }
+    hal_wwdgt_feed();
+
+    uint8_t flags = 0U;
+    if (hal_charger_int_get()) {
+        flags |= 0x01U; /* PA11 CHAGER_INT level */
+    }
+    if (hal_coil_int_get()) {
+        flags |= 0x02U; /* PA12 COIL_INT level */
+    }
+    if (hal_gpio_get(HAL_PIN_CHIP_EN2)) {
+        flags |= 0x04U; /* PB11 actual pin level (readback) */
+    }
+    if (mt5706_is_enabled()) {
+        flags |= 0x08U; /* driver's idea of the enable state */
+    }
+
+    uint8_t p[11] = {0U};
+    p[0] = flags;
+    p[1] = ok;
+    p[2] = ip_state0;
+    p[3] = ip_state2;
+    p[4] = ip_state5;
+    p[5] = cw_vcell[0];
+    p[6] = cw_vcell[1];
+    p[7] = cw_soc;
+    p[8] = cw_ver;
+    p[9] = cw_cfg;
+    p[10] = ip_ntc; /* IP5353 NTC_STATE (0x6F) raw — temperature protection flags */
+    send_hil_ack(AT_OPCODE_HIL_CHG_DIAG, AT_SUCCESS, p, (uint8_t)sizeof(p));
+}
+
 void update_mode_poll(void)
 {
     while (true) {
@@ -187,7 +261,7 @@ void update_mode_poll(void)
         }
 
         /* Only HIL opcodes are ours. Anything else: drop the lead byte. */
-        if (opcode < AT_OPCODE_HIL_RESET || opcode > AT_OPCODE_HIL_OTA) {
+        if (opcode < AT_OPCODE_HIL_RESET || opcode > AT_OPCODE_HIL_CHG_DIAG) {
             uint8_t tmp;
             (void)hal_usart_rx_get(&tmp);
             continue;
@@ -235,6 +309,9 @@ void update_mode_poll(void)
                 break;
             case AT_OPCODE_HIL_SCAN:
                 handle_hil_scan();
+                break;
+            case AT_OPCODE_HIL_CHG_DIAG:
+                handle_hil_chg_diag();
                 break;
             case AT_OPCODE_HIL_OTA:
                 handle_hil_ota();
