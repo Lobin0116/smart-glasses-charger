@@ -93,9 +93,14 @@ BLE 功能已移除，不实现任何蓝牙相关逻辑。
 
 ### 帧格式
 Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
-- 请求Magic: 0x23415423 (#AT#)
-- 响应Magic: 0x23415023 (#AP#)
+- 请求Magic: 0x23415423（小端线上字节 `23 54 41 23`）
+- 响应Magic: 0x23415023（小端线上字节 `23 50 41 23`）
 - CRC-8 使用协议文档提供的256字节查找表
+
+**字节序（2026-08-14 统一）**：全部多字节字段（Magic/Size/Opcode 及 payload 内的 index/fw_size）统一**小端**；
+`Size` 语义 = **payload 长度**（不含 10B 帧头），线上帧总长 = Size + 10。
+此前实现为"帧头大端 + Size=总帧长 + OTA payload 小端"的混合格式，为对齐眼镜端协议（真机抓包确认
+`23 54 41 23 · CRC · 04 00 · 01 30 · ...` 样式）已全量切换；PC 工具 sgc_at.py 同步。
 
 ### 指令集
 | Opcode | 名称 | REQ Payload | RSP Payload |
@@ -304,7 +309,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 
 | 类别 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | ✅ PASS 9/9 (含 A15 重写为 MAINTAINING 验证) | 2026-08-12 |
+| A | AT 协议帧格式 (Magic/Size/Opcode/CRC/Payload) | ✅ PASS 9/9 (含 A15 重写为 MAINTAINING 验证) | 2026-08-12；⚠ 2026-08-14 切换全小端+Size=payload长 后**未重跑**（用户指示），期望字节断言需更新 |
 | B | 时序 (握手 800ms / 心跳间隔 / 30s 开盖 / 60s 关盖 / 9min 强充) | ✅ PASS B03/B04 | 2026-08-12 |
 | C | 状态机转换全覆盖 | ✅ PASS C01/C02, C07 XPASS (xfail 标记可去) | C03/C12 skip（CW2017 profile 烧录后解锁，待硬件验证） |
 | E | 按键 (短按查电量 / 50ms 去抖 / 长按忽略) | ✅ PASS E01 | 2026-08-12 |

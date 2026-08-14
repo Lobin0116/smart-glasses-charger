@@ -6,14 +6,19 @@
 #include "at_types.h"
 
 /* Frame layout: Magic(4) + CRC8(1) + Size(2) + Opcode(2) + Status/Reserved(1)
- * = AT_FRAME_HEADER_SIZE bytes, followed by a variable-length payload. Size
- * holds the total frame length (header + payload). Multi-byte fields are
- * big-endian so the magic reads as the ASCII tag "#AT#" / "#AP#" on the wire. */
+ * = AT_FRAME_HEADER_SIZE bytes, followed by a variable-length payload.
+ *
+ * Byte order: ALL multi-byte fields are LITTLE-ENDIAN (matching the ARM
+ * Cortex-M23 native layout, and the glasses-side protocol implementation).
+ * Size holds the PAYLOAD length only (not the total frame length) — a frame
+ * occupies Size + AT_FRAME_HEADER_SIZE bytes on the wire. On the wire the
+ * REQ magic reads 23 54 41 23 ("#TA#") and the RSP magic 23 50 41 23 ("#PA#")
+ * when bytes are listed in transmission order. */
 #define AT_FRAME_HEADER_SIZE 10U
 #define AT_FRAME_MAX_PAYLOAD 255U
 
-#define AT_FRAME_MAGIC_REQ   0x23415423U /* "#AT#" */
-#define AT_FRAME_MAGIC_RSP   0x23415023U /* "#AP#" */
+#define AT_FRAME_MAGIC_REQ   0x23415423U /* LE on wire: 23 54 41 23 */
+#define AT_FRAME_MAGIC_RSP   0x23415023U /* LE on wire: 23 50 41 23 */
 
 /* Pack a request frame, writing the request magic and the reserved byte into
  * the Status/Reserved slot. payload may be NULL when payload_len is 0. Returns

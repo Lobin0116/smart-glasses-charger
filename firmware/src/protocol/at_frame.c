@@ -29,25 +29,25 @@
 volatile uint8_t at_frame_last_fail_stage = 0U;
 volatile uint16_t at_frame_last_buf_bytes = 0U;
 
-static void at_frame_put_be16(uint8_t *p, uint16_t v)
+static void at_frame_put_le16(uint8_t *p, uint16_t v)
 {
-    p[0] = (uint8_t)(v >> 8);
-    p[1] = (uint8_t)v;
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
 }
 
-static uint16_t at_frame_get_be16(const uint8_t *p) { return (uint16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]); }
+static uint16_t at_frame_get_le16(const uint8_t *p) { return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8)); }
 
-static void at_frame_put_be32(uint8_t *p, uint32_t v)
+static void at_frame_put_le32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)(v >> 24);
-    p[1] = (uint8_t)(v >> 16);
-    p[2] = (uint8_t)(v >> 8);
-    p[3] = (uint8_t)v;
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
 }
 
-static uint32_t at_frame_get_be32(const uint8_t *p)
+static uint32_t at_frame_get_le32(const uint8_t *p)
 {
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 /* CRC8 spans the whole frame except the CRC byte: the magic, then everything
@@ -64,9 +64,10 @@ static uint16_t at_frame_pack(
 {
     uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + payload_len);
 
-    at_frame_put_be32(buf, magic);
-    at_frame_put_be16(buf + AT_FRAME_OFFSET_SIZE, total_len);
-    at_frame_put_be16(buf + AT_FRAME_OFFSET_OPCODE, opcode);
+    at_frame_put_le32(buf, magic);
+    /* Size carries the PAYLOAD length only — wire frame is Size + header. */
+    at_frame_put_le16(buf + AT_FRAME_OFFSET_SIZE, payload_len);
+    at_frame_put_le16(buf + AT_FRAME_OFFSET_OPCODE, opcode);
     buf[AT_FRAME_OFFSET_STATUS] = status;
     if (payload_len > 0U) {
         memcpy(buf + AT_FRAME_OFFSET_PAYLOAD, payload, payload_len);
@@ -98,12 +99,12 @@ at_status at_frame_parse(
         return AT_ERR_LENGTH;
     }
 
-    uint32_t magic = at_frame_get_be32(buf);
+    uint32_t magic = at_frame_get_le32(buf);
     if (magic != AT_FRAME_MAGIC_REQ && magic != AT_FRAME_MAGIC_RSP) {
         return AT_ERR_MAGIC;
     }
 
-    if (at_frame_get_be16(buf + AT_FRAME_OFFSET_SIZE) != total_len) {
+    if ((uint16_t)(at_frame_get_le16(buf + AT_FRAME_OFFSET_SIZE) + AT_FRAME_HEADER_SIZE) != total_len) {
         return AT_ERR_LENGTH;
     }
 
@@ -114,7 +115,7 @@ at_status at_frame_parse(
     uint8_t plen = (uint8_t)(total_len - AT_FRAME_HEADER_SIZE);
 
     if (opcode != NULL) {
-        *opcode = at_frame_get_be16(buf + AT_FRAME_OFFSET_OPCODE);
+        *opcode = at_frame_get_le16(buf + AT_FRAME_OFFSET_OPCODE);
     }
     if (status != NULL) {
         *status = buf[AT_FRAME_OFFSET_STATUS];
@@ -177,7 +178,7 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     }
 
     /* Verify magic. */
-    uint32_t magic = at_frame_get_be32(header);
+    uint32_t magic = at_frame_get_le32(header);
     if (magic != AT_FRAME_MAGIC_REQ && magic != AT_FRAME_MAGIC_RSP) {
         /* Bogus lead byte — consume it so the next call re-hunts. */
         (void)hal_usart_rx_get(&c);
@@ -187,10 +188,12 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         return 0U;
     }
 
-    /* Parse size + opcode. */
-    uint16_t size = at_frame_get_be16(header + AT_FRAME_OFFSET_SIZE);
-    uint16_t opcode = at_frame_get_be16(header + AT_FRAME_OFFSET_OPCODE);
-    if (size < AT_FRAME_HEADER_SIZE || size > buf_max) {
+    /* Parse size + opcode. Size is the payload length; the frame occupies
+     * size + header bytes on the wire. */
+    uint16_t size = at_frame_get_le16(header + AT_FRAME_OFFSET_SIZE);
+    uint16_t opcode = at_frame_get_le16(header + AT_FRAME_OFFSET_OPCODE);
+    uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + size);
+    if (size > AT_FRAME_MAX_PAYLOAD || total_len > buf_max) {
         (void)hal_usart_rx_get(&c);
         at_frame_last_fail_stage = 4U;
         at_frame_last_buf_bytes = hal_usart_rx_avail();
@@ -212,7 +215,7 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         (void)hal_usart_rx_get(&buf[i]);
     }
     uint16_t n = AT_FRAME_HEADER_SIZE;
-    while (n < size) {
+    while (n < total_len) {
 #ifndef BL_NO_WWDGT
         hal_wwdgt_feed();
 #endif

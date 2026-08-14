@@ -8,8 +8,8 @@ import re
 import struct
 import time
 
-MAGIC_REQ = 0x23415423
-MAGIC_RSP = 0x23415023
+MAGIC_REQ = 0x23415423  # LE on wire: 23 54 41 23
+MAGIC_RSP = 0x23415023  # LE on wire: 23 50 41 23
 HEADER_SIZE = 10
 MAX_PAYLOAD = 255
 
@@ -97,9 +97,9 @@ def frame_crc(buf: bytes) -> int:
 def pack_request(opcode: int, payload: bytes = b"", reserved: int = 0x00) -> bytes:
     total_len = HEADER_SIZE + len(payload)
     buf = bytearray(total_len)
-    struct.pack_into(">I", buf, 0, MAGIC_REQ)
-    struct.pack_into(">H", buf, 5, total_len)
-    struct.pack_into(">H", buf, 7, opcode)
+    struct.pack_into("<I", buf, 0, MAGIC_REQ)
+    struct.pack_into("<H", buf, 5, len(payload))  # Size = payload length only
+    struct.pack_into("<H", buf, 7, opcode)
     buf[9] = reserved
     buf[10:] = payload
     buf[4] = frame_crc(bytes(buf))
@@ -109,9 +109,9 @@ def pack_request(opcode: int, payload: bytes = b"", reserved: int = 0x00) -> byt
 def pack_response(opcode: int, status: int = AT_SUCCESS, payload: bytes = b"") -> bytes:
     total_len = HEADER_SIZE + len(payload)
     buf = bytearray(total_len)
-    struct.pack_into(">I", buf, 0, MAGIC_RSP)
-    struct.pack_into(">H", buf, 5, total_len)
-    struct.pack_into(">H", buf, 7, opcode)
+    struct.pack_into("<I", buf, 0, MAGIC_RSP)
+    struct.pack_into("<H", buf, 5, len(payload))  # Size = payload length only
+    struct.pack_into("<H", buf, 7, opcode)
     buf[9] = status
     buf[10:] = payload
     buf[4] = frame_crc(bytes(buf))
@@ -121,16 +121,16 @@ def pack_response(opcode: int, status: int = AT_SUCCESS, payload: bytes = b"") -
 def parse_frame(buf: bytes):
     if len(buf) < HEADER_SIZE:
         raise ValueError(f"frame too short: {len(buf)} bytes")
-    magic = struct.unpack_from(">I", buf, 0)[0]
-    size = struct.unpack_from(">H", buf, 5)[0]
-    opcode = struct.unpack_from(">H", buf, 7)[0]
+    magic = struct.unpack_from("<I", buf, 0)[0]
+    size = struct.unpack_from("<H", buf, 5)[0]
+    opcode = struct.unpack_from("<H", buf, 7)[0]
     status = buf[9]
-    if size != len(buf):
-        raise ValueError(f"size field ({size}) != actual length ({len(buf)})")
-    expected_crc = frame_crc(buf[:size])
+    if size + HEADER_SIZE != len(buf):
+        raise ValueError(f"size field ({size}) + header != actual length ({len(buf)})")
+    expected_crc = frame_crc(buf)
     if buf[4] != expected_crc:
         raise ValueError(f"CRC mismatch: byte={buf[4]:#04x} computed={expected_crc:#04x}")
-    payload = buf[HEADER_SIZE:size]
+    payload = buf[HEADER_SIZE:]
     return {"magic": magic, "opcode": opcode, "status": status, "payload": payload}
 
 
@@ -164,7 +164,8 @@ def pack_read_response(index: int, data: bytes, packet_type: int = 0) -> bytes:
 # last one stopped.
 _recv_buf = bytearray()
 
-_MAGIC_REQ_BYTES = struct.pack(">I", MAGIC_REQ)
+_RECV_MAGIC_BYTES_REQ = struct.pack("<I", MAGIC_REQ)
+_RECV_MAGIC_BYTES_RSP = struct.pack("<I", MAGIC_RSP)
 
 
 def recv_request(ser, timeout: float = 5.0, magic: int = MAGIC_REQ) -> bytes:
@@ -172,7 +173,7 @@ def recv_request(ser, timeout: float = 5.0, magic: int = MAGIC_REQ) -> bytes:
     Pass magic=MAGIC_RSP to receive response frames (HIL ACKs)."""
     old_timeout = ser.timeout
     ser.timeout = 0.1  # short poll so the end_time check actually runs
-    magic_bytes = struct.pack(">I", magic)
+    magic_bytes = struct.pack("<I", magic)
     try:
         end_time = time.time() + timeout
         while time.time() < end_time:
@@ -180,18 +181,19 @@ def recv_request(ser, timeout: float = 5.0, magic: int = MAGIC_REQ) -> bytes:
             while idx >= 0:
                 if len(_recv_buf) - idx < 7:
                     break  # header not complete yet — wait, do NOT drop magic
-                size = struct.unpack_from(">H", _recv_buf, idx + 5)[0]
-                if size < HEADER_SIZE:
+                size = struct.unpack_from("<H", _recv_buf, idx + 5)[0]
+                if size > 255:
                     # Bogus size field — drop the magic lead and re-hunt.
                     del _recv_buf[:idx + 4]
                     idx = _recv_buf.find(magic_bytes)
                     continue
-                if len(_recv_buf) - idx < size:
+                total = size + HEADER_SIZE
+                if len(_recv_buf) - idx < total:
                     break  # frame not complete yet — wait, do NOT drop magic
-                frame = bytes(_recv_buf[idx:idx + size])
+                frame = bytes(_recv_buf[idx:idx + total])
                 try:
                     parse_frame(frame)
-                    del _recv_buf[:idx + size]
+                    del _recv_buf[:idx + total]
                     return frame
                 except ValueError:
                     # CRC/magic mismatch — not a real frame, drop lead and re-hunt.

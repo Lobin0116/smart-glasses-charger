@@ -245,11 +245,12 @@ void update_mode_poll(void)
 
         /* Peek the 10-byte header without consuming. */
         uint8_t header[AT_FRAME_HEADER_SIZE];
+        uint8_t frame_buf[64];
         if (!hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
             break; /* header not fully arrived yet; wait for next poll */
         }
 
-        uint16_t opcode = (uint16_t)(((uint16_t)header[7] << 8) | header[8]);
+        uint16_t opcode = (uint16_t)((uint16_t)header[7] | ((uint16_t)header[8] << 8));
 
         /* Production protocol frames are left in the buffer for charge_poll /
          * ota_flow to consume via at_frame_recv. update_mode_poll must NOT
@@ -267,18 +268,19 @@ void update_mode_poll(void)
             continue;
         }
 
-        uint16_t size = (uint16_t)(((uint16_t)header[5] << 8) | header[6]);
-        if (size < AT_FRAME_HEADER_SIZE || size > 64U) {
+        /* Size is the payload length (LE); the frame occupies size + header. */
+        uint16_t size = (uint16_t)((uint16_t)header[5] | ((uint16_t)header[6] << 8));
+        uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + size);
+        if (total_len > (uint16_t)sizeof(frame_buf)) {
             uint8_t tmp;
             (void)hal_usart_rx_get(&tmp);
             continue;
         }
 
         /* Wait for the full frame to arrive, then consume it. Header already
-         * in the buffer; payload follows within (size-10) × 87us at 115200. */
-        uint8_t frame[64];
+         * in the buffer; payload follows within size × 87us at 115200. */
         uint32_t wait_start = hal_timer_get_ms();
-        while (!hal_usart_rx_peek_n(frame, size)) {
+        while (!hal_usart_rx_peek_n(frame_buf, total_len)) {
             if (hal_timer_expired(wait_start, 50U)) {
                 /* Timeout — drop what we have and let the caller retry. */
                 uint8_t tmp;
@@ -286,7 +288,7 @@ void update_mode_poll(void)
                 goto next;
             }
         }
-        for (uint16_t i = 0U; i < size; i++) {
+        for (uint16_t i = 0U; i < total_len; i++) {
             uint8_t tmp;
             (void)hal_usart_rx_get(&tmp);
         }
