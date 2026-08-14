@@ -64,6 +64,8 @@ bool hal_usart_rx_peek_n(uint8_t *buf, uint16_t n)
 }
 void hal_usart_rx_clear(void) {}
 
+uint16_t hal_usart_rx_avail(void) { return 0U; }
+
 /* at_frame.c feeds WWDGT in its wait loops (added during OTA stability work);
  * mock it as a no-op for host tests. */
 void hal_wwdgt_feed(void) {}

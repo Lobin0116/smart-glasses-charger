@@ -316,7 +316,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | F | 霍尔 (双沿注入 / 开关盖转换) | ✅ PASS F01/F02/F03 (F02/F03 flaky 标记) | HIL 命令注入时序竞争 |
 | G | LED 灯效 (呼吸颜色 / 充满白 / 查电量 7s / 低电红闪) | ❌ TODO | 需人眼观察或自动化 |
 | H | 充电仲裁 (USB 优先 / 无线 fallback / NTC 停充) | ❌ TODO | — |
-| I | OTA 升级 | ◐ I01 flaky / I02 偶发 PASS | PC USB-TTL 时序抖动，详见下文 |
+| I | OTA 升级 | ✅ PASS I01+I02（2026-08-14，全小端新协议下首测：I01 8s / I02 20.7s，烧录后心跳帧与眼镜真机抓包格式逐字节一致） | 旧大端时代的 flaky 已随 512B RX buffer + clear-on-failure 根治 |
 | J | 低功耗 (Deep-Sleep <50uA / Standby <5uA / 唤醒源) | ❌ TODO | 需电流计 |
 
 ### I 类 OTA 已知问题（HIL 测试工具限制，非固件 bug）

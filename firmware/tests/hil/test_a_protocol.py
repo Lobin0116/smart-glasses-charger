@@ -15,9 +15,10 @@ def test_a01_request_magic(heartbeat_frame):
 
 
 def test_a03_header_size_field(heartbeat_frame):
-    size = struct.unpack_from(">H", heartbeat_frame, 5)[0]
-    assert size == len(heartbeat_frame), f"size field={size}, actual={len(heartbeat_frame)}"
-    assert size == sgc_at.HEADER_SIZE + 4, f"心跳帧总长应为 14 字节(header 10 + payload 4)，实际 {size}"
+    size = struct.unpack_from("<H", heartbeat_frame, 5)[0]
+    assert size + sgc_at.HEADER_SIZE == len(heartbeat_frame), \
+        f"size+header={size + sgc_at.HEADER_SIZE}, actual={len(heartbeat_frame)}"
+    assert size == 4, f"心跳 payload 应为 4 字节(role.des + role.src + case_soc + case_sta)，实际 {size}"
 
 
 def test_a04_crc_correct(heartbeat_frame):
@@ -27,7 +28,7 @@ def test_a04_crc_correct(heartbeat_frame):
 
 
 def test_a07_opcode_heartbeat(heartbeat_frame):
-    opcode = struct.unpack_from(">H", heartbeat_frame, 7)[0]
+    opcode = struct.unpack_from("<H", heartbeat_frame, 7)[0]
     assert opcode == sgc_at.OPCODE_CASE_HEART, f"opcode={opcode:#06x}, expected heartbeat 0x3001"
 
 

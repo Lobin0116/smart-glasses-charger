@@ -55,10 +55,10 @@ static void test_frame_request_magic(void)
     uint8_t payload[] = {0x00, 0x01, 0x50};
     uint16_t len = at_frame_pack_request(buf, AT_OPCODE_CASE_HEART, payload, 3, 0x00);
 
-    /* Magic should be 0x23415423 in big-endian */
+    /* Magic 0x23415423 packed little-endian reads 23 54 41 23 on the wire */
     TEST_ASSERT_EQ(buf[0], 0x23, "Magic byte 0");
-    TEST_ASSERT_EQ(buf[1], 0x41, "Magic byte 1");
-    TEST_ASSERT_EQ(buf[2], 0x54, "Magic byte 2");
+    TEST_ASSERT_EQ(buf[1], 0x54, "Magic byte 1");
+    TEST_ASSERT_EQ(buf[2], 0x41, "Magic byte 2");
     TEST_ASSERT_EQ(buf[3], 0x23, "Magic byte 3");
     TEST_ASSERT(len > 10, "Frame should be longer than header");
 }
@@ -70,8 +70,8 @@ static void test_frame_response_magic(void)
     uint16_t len = at_frame_pack_response(buf, AT_OPCODE_CASE_HEART, 0x00, payload, 1);
 
     TEST_ASSERT_EQ(buf[0], 0x23, "RSP Magic byte 0");
-    TEST_ASSERT_EQ(buf[1], 0x41, "RSP Magic byte 1");
-    TEST_ASSERT_EQ(buf[2], 0x50, "RSP Magic byte 2 (#AP#)");
+    TEST_ASSERT_EQ(buf[1], 0x50, "RSP Magic byte 1");
+    TEST_ASSERT_EQ(buf[2], 0x41, "RSP Magic byte 2 (LE \"#PA#\")");
     TEST_ASSERT_EQ(buf[3], 0x23, "RSP Magic byte 3");
 }
 

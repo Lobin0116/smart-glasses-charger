@@ -47,7 +47,7 @@ def test_c01_idle_open_enters_handshaking(serial_port):
     _reset_open(serial_port)
     frame = sgc_at.recv_request(serial_port, timeout=5.0)
     assert frame is not None, "OPEN 后 5s 内未收到心跳帧（IDLE→HANDSHAKING 未触发）"
-    opcode = struct.unpack_from(">H", frame, 7)[0]
+    opcode = struct.unpack_from("<H", frame, 7)[0]
     assert opcode == sgc_at.OPCODE_CASE_HEART, f"opcode={opcode:#06x}, 应为心跳 0x3001"
 
 
@@ -116,7 +116,7 @@ def test_c07_close_full_triggers_shutdown(serial_port):
         frame = sgc_at.recv_request(serial_port, timeout=2.0)
         if frame is None:
             continue
-        opcode = struct.unpack_from(">H", frame, 7)[0]
+        opcode = struct.unpack_from("<H", frame, 7)[0]
         if opcode == OPCODE_SHUTDOWN:
             shutdown_frame = frame
             break
@@ -198,7 +198,7 @@ def test_c11_shutdown_retry_5_times(serial_port):
             serial_port.write(sgc_at.pack_heartbeat_response(
                 glass_soc=0xE4, glass_sta=0x00, case_version=sgc_at.CASE_FW_VERSION))
             continue
-        opcode = struct.unpack_from(">H", frame, 7)[0]
+        opcode = struct.unpack_from("<H", frame, 7)[0]
         if opcode == OPCODE_SHUTDOWN:
             shutdown_frames += 1
             if shutdown_frames >= 5:

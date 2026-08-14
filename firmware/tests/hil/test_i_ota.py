@@ -93,7 +93,7 @@ def _await_opcode(serial_port, opcode, timeout, body_check=None):
         f = sgc_at.recv_request(serial_port, timeout=1.0)
         if f is None:
             continue
-        got = struct.unpack_from(">H", f, 7)[0]
+        got = struct.unpack_from("<H", f, 7)[0]
         if got == opcode and (body_check is None or body_check(f)):
             return f
     return None
@@ -132,7 +132,7 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
             parsed = sgc_at.parse_frame(f)
         except ValueError:
             continue
-        opcode = struct.unpack_from(">H", f, 7)[0]
+        opcode = struct.unpack_from("<H", f, 7)[0]
         if opcode == sgc_at.OPCODE_CASE_HEART and (parsed["payload"][3] & 0x80):
             ota_req = f
             break
@@ -160,7 +160,7 @@ def test_i01_ota_trigger_reaches_prepare(serial_port):
         if f is None:
             continue
         seen.append(f)
-        got = struct.unpack_from(">H", f, 7)[0]
+        got = struct.unpack_from("<H", f, 7)[0]
         if got == sgc_at.OPCODE_CASE_PACKET_PREPARE:
             prepare = f
             break
@@ -263,7 +263,7 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
             seen_after_agree.append(f"op=0x{p['opcode']:04X} payload={p['payload'].hex()[:20]}")
         except ValueError:
             seen_after_agree.append(f"CRC-fail {f.hex()[:20]}")
-        if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_PREPARE:
+        if struct.unpack_from("<H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_PREPARE:
             prepare = f
             break
     assert prepare is not None, (
@@ -295,7 +295,7 @@ def test_i02_full_ota_with_app_bin(serial_port, tmp_path):
                 diag_seen.append(f"op={p['opcode']:#06x} idx={p['payload'][2]:3d}")
             except ValueError:
                 diag_seen.append(f"CRC-fail {f.hex()[:24]}")
-            if struct.unpack_from(">H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_READ:
+            if struct.unpack_from("<H", f, 7)[0] == sgc_at.OPCODE_CASE_PACKET_READ:
                 read_req = f
                 t_recv_done = time.time()
                 break
