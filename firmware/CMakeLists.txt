@@ -33,9 +33,19 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 option(HIL_TEST "Enable HIL test hooks (USART OPEN/CLOSE/KEY/RESET commands, no Deep-Sleep in IDLE)" OFF)
 
+# Optimization: production stays at the toolchain default (-O0) until -Os is
+# qualified on real hardware. The HIL build enables -Os because update_mode +
+# diagnostics overflow the 27 KB app partition at -O0; that build has been
+# field-validated with -Os (charge-diagnosis session on real cases).
+if(HIL_TEST)
+    set(OPT_LEVEL "-Os")
+else()
+    set(OPT_LEVEL "")
+endif()
+
 set(MCU_FLAGS "-mcpu=cortex-m23 -mthumb")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -Os -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections -gdwarf-2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} ${OPT_LEVEL} -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections -gdwarf-2")
 set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${MCU_FLAGS} -x assembler-with-cpp")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${CMAKE_SOURCE_DIR}/startup/gd32e230x8_flash.ld -Wl,--gc-sections -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map --specs=nano.specs --specs=nosys.specs")
 
