@@ -26,9 +26,17 @@
  * re-evaluates SOC with the updated config (Cellwise demo: CONFIG_UPDATE_FLG). */
 #define CW2017_SOC_ALERT_UPDATE_FLAG 0x80U
 
-/* Battery profile for 4.2V Li-ion 2000mAh (source: Cellwise CW2017 Driver V1.4.1
- * demo, matches memory cw2017-battery-profile). Used by cw2017_init to auto-burn
- * on first boot / re-burn if the chip lost its config. */
+/* Battery profile (80 bytes) — copied from the Cellwise CW2017 Driver V1.4.1
+ * demo default, which encodes a 4.2V/2000mAh OCV-SOC curve.
+ *
+ * ⚠ UNVERIFIED ASSUMPTION: the product spec (docs/spec/product_requirement_
+ * v0.1.xlsx) only says "Li-ion 2000mAh 2C" and does NOT define the charge
+ * termination voltage. This profile was adopted as a placeholder, not from
+ * battery-vendor data. If the actual cell is a 4.35V system (or any curve
+ * differing from this demo table), SOC% will be wrong — replace this array
+ * with the vendor profile and verify full-charge open-circuit voltage
+ * (4.2V system rests ~4.16-4.20V, 4.35V system ~4.30-4.35V). Used by
+ * cw2017_init to auto-burn on first boot / re-burn if the chip lost config. */
 #define CW2017_PROFILE_SIZE 80U
 static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
     0x5A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

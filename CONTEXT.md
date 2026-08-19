@@ -379,7 +379,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 4. **OTA 与真眼镜端互通** — 协议一致性 + 实际升级成功率
 
 ### 已知硬件问题（阻塞部分测试）
-- **~~CW2017 battery profile 未烧录~~**：**已在固件层实现 auto-burn**（cw2017.c：`cw2017_init` 启动时检查 MODE_CONFIG/SOC_ALERT/PROFILE，必要时自动烧录 80 字节 4.2V Li-ion profile + 触发 quickstart）。首次启动 ~250ms 烧录，后续启动 ~10ms 自检跳过。烧录后 VERSION=0xA0、SOC=0-100% 应正常，解锁 C03/C05/C12 等 SOC 依赖 case。**待硬件实测确认**（板子重新烧固件后自动生效）。
+- **~~CW2017 battery profile 未烧录~~**：**已在固件层实现 auto-burn**（cw2017.c：`cw2017_init` 启动时检查 MODE_CONFIG/SOC_ALERT/PROFILE，必要时自动烧录 80 字节 profile（⚠ Cellwise demo 默认的 4.2V 曲线，产品规格未定义截止电压，非电池厂数据）+ 触发 quickstart）。首次启动 ~250ms 烧录，后续启动 ~10ms 自检跳过。烧录后 VERSION=0xA0、SOC=0-100% 应正常，解锁 C03/C05/C12 等 SOC 依赖 case。**待硬件实测确认**（板子重新烧固件后自动生效）。
 
 ## 待完成 (Code/Documentation)
 
@@ -390,7 +390,7 @@ HIL 测试: A 类协议 7/7 通过 (test_a_protocol.py，PC 模拟眼镜端)
 | SHIP_MODE 进入路径 | **待确认**：状态枚举 `ST_SHIP_MODE` 存在，`pm_enter_ship_mode()` 实现了（power_mgmt.c:32 → Standby + 拉高 PB14 SHIP_CTR），但代码无任何路径调用 → 当前是死代码。REQ §"运输功能"说"眼镜厂内设置进入船运模式"，但**进入触发机制不明**（工厂夹具？长按？HIL 命令？）。**决策暂缓**：暂留代码不动，待产品/工程确认进入方式后再删除死枚举或加触发路径 | 待确认 |
 | ~~LED 低电红闪 7s（BATTERY_DISPLAY 低电分支）~~ | **已修复**：REQ §3 "1%<SOC≤5% 红闪 7s" 是查电量场景（不是持续低电闪）。`apply_effect(BATTERY_DISPLAY)` 低电分支改 LED_BLINK；`resolve_effect` 删 case_soc≤5% 自动闪路径；删 `LED_EFFECT_LOW_BATT_BLINK` 枚举。HIL 时人眼验证 | ✅ Done |
 | ~~单元测试补 hal_bootmeta~~ | **已完成**：`firmware/tests/test_bootmeta.c` 12 用例 / 58 assertion 全通过。覆盖 pick_latest（空/m0/m1/双 seq 比较）+ meta_validate（bad magic/CRC）+ 双 page 轮换（set/clear 交替）+ 掉电恢复（一页 CRC 损坏时回退另一页）+ OTA round-trip。改动：hal_bootmeta.c 改用 `hal_flash_read` 取代直接 dereference（产代码 memory-mapped memcpy），让 host 测试可 mock；hal_flash.h/.c 加 `hal_flash_read` | ✅ Done |
-| ~~SOC 异常兜底校验~~ + ~~CW2017 profile 烧录~~ | **已修复**：cw2017.c 启动时 auto-burn 80 字节 4.2V Li-ion profile（如未烧或漂移），quickstart 后 SOC 应正常。`cw2017_get_soc` 保留 SOC==0/>100 fallback=100 兜底（防芯片异常）。C03/C05/C12 待硬件实测确认解锁 | ✅ Done |
+| ~~SOC 异常兜底校验~~ + ~~CW2017 profile 烧录~~ | **已修复**：cw2017.c 启动时 auto-burn 80 字节 profile（⚠ Cellwise demo 默认 4.2V 曲线，未经电池规格证实），quickstart 后 SOC 应正常。`cw2017_get_soc` 保留 SOC==0/>100 fallback=100 兜底（防芯片异常）。C03/C05/C12 待硬件实测确认解锁 | ✅ Done |
 | CW2017 profile 烧录工具 | 不需要独立工具：固件 cw2017_init 自检 + auto-burn 已实现，无需 HIL 命令/USB-I2C 适配器 | ✅ Done |
 | 波特率发布前确认 | 当前 115200（调试期偏离 spec 921600），发布前与眼镜端对齐 | 发布前 |
 | ota_verify 空函数 | 协议（PROT/TIM）无 checksum 字段，OTA_UPGRADE_PLAN §6 明确预留 | 低（协议扩展后补） |
