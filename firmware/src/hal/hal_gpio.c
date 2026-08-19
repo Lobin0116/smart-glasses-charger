@@ -46,14 +46,17 @@ void hal_gpio_init(void)
     rcu_periph_clock_enable(RCU_GPIOB);
     rcu_periph_clock_enable(RCU_GPIOF);
 
-    /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on). */
+    /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on).
+     * ODR is written BEFORE the mode switch: flipping CTL to output would
+     * otherwise drive the ODR reset value (0 = LED on) for a short glitch.
+     * The bootloader nails these pins high with the same ordering, so from
+     * BL entry onward they never float or drive low. */
+    gpio_bit_set(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
-    gpio_bit_set(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
-
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
-    gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
 
     /* Control outputs: push-pull, 2MHz, initially low. */
     gpio_mode_set(GPIOB,
