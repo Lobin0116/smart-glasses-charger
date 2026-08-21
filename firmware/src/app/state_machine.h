@@ -39,6 +39,10 @@ typedef struct
     bool ota_requested;
     uint8_t reported_case_version; /* mirrored by glasses via at_glass_data.case_version */
     uint32_t last_soc_refresh_ms;
+    /* Last CW2017 temperature sample, refreshed by main's 500 ms poll
+     * (refresh_case_status). The state machine must not read the gauge on
+     * every tick — that is an I2C transaction per main-loop pass. */
+    int8_t ntc_temp_c;
     /* Set by the HALL EXTI ISR (any edge), cleared by sm_tick once it has
      * re-sampled the level. Decouples "an edge happened" from "the level
      * changed": a close+open contained inside one ~1.1 s handshake burst

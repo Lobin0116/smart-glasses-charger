@@ -98,6 +98,7 @@ static void refresh_case_status(void)
 {
     uint8_t soc = cw2017_get_soc();
     sm.case_soc = soc;
+    sm.ntc_temp_c = cw2017_get_temp_c();
 
     bool charging = ip5353_is_charging();
     bool input_valid = ip5353_is_input_valid();

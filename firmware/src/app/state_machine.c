@@ -4,7 +4,6 @@
 
 #include "aux_logic.h"
 #include "charge_flow.h"
-#include "cw2017.h"
 #include "fw_version.h"
 #include "hal_exti.h"
 #include "hal_gpio.h"
@@ -110,8 +109,10 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
         return;
     }
 
-    /* NTC temperature protection: stop charging on critical, no action on normal. */
-    ntc_zone_t zone = ntc_get_zone(cw2017_get_temp_c());
+    /* NTC temperature protection: stop charging on critical, no action on normal.
+     * Uses the 500 ms-cached sample from refresh_case_status — a fresh I2C read
+     * here would run on every main-loop pass while in CHARGING. */
+    ntc_zone_t zone = ntc_get_zone(ctx->ntc_temp_c);
     if (ntc_should_stop_charge(zone)) {
         hal_pwr_idle();
         return;
@@ -236,6 +237,7 @@ void sm_init(sm_ctx_t *ctx)
     ctx->glass_full = false;
     ctx->ota_requested = false;
     ctx->reported_case_version = 0U;
+    ctx->ntc_temp_c = 25; /* benign room value until the first 500 ms refresh */
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;
