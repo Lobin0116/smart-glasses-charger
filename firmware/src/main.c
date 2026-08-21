@@ -183,8 +183,18 @@ int main(void)
 #ifndef HIL_TEST
         /* Gate sleep on exti_pending so a KEY edge that fired this iteration
          * (20 ms debounce not yet elapsed) is not lost. HALL doesn't need
-         * this gate — sm_tick re-samples hal_hall_get() on every wake. */
-        if (sm_can_sleep(&sm) && exti_pending == 0U) {
+         * this gate — sm_tick re-samples hal_hall_get() on every wake.
+         *
+         * Gate on CHARGER_INT level too: while the IP5353 is awake (PA11
+         * pushed high) the case may still be charging or about to resume —
+         * e.g. the input collapsed under a 2A+ load and the adapter will
+         * recover. Sleeping then bricks the UI: on input recovery the INT
+         * pin stays high (no new edge), so nothing would ever wake us —
+         * battery charging with a dark LED. Instead, follow the PMIC: stay
+         * awake while INT is high, and sleep only once the IP5353 itself
+         * goes to standby (INT high-Z, pulled low). Any later standby→work
+         * transition is a rising edge the dual-edge EXTI already latches. */
+        if (sm_can_sleep(&sm) && exti_pending == 0U && !hal_charger_int_get()) {
             pm_enter_deep_sleep();
         }
 #endif
