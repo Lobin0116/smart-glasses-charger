@@ -151,7 +151,7 @@
 | 请求帧 Magic 0x23415423 (#AT#) | PROT + TIM | "MAGIC（4 Byte）" |
 | 响应帧 Magic 0x23415023 (#AP#) | PROT + TIM | "MAGIC（4 Byte）" |
 | 帧头 10B: Magic+CRC+Size+Opcode+Status | PROT | "2.1 字段说明" |
-| CRC 校验范围: Magic 到 Payload | PROT | 帧格式图 |
+| CRC 校验范围: 仅 CRC 字节之后（Size→Payload），不含 Magic | 实测对齐 | 协议 PDF 未写明范围；按真机抓包与眼镜参考实现修正（main 99e1637，2026-09-04） |
 
 ### at_opcode.h
 | Opcode | 需求来源 | 具体位置 |
