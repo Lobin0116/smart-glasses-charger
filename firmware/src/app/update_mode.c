@@ -14,6 +14,7 @@
     #include "hal_timer.h"
     #include "hal_usart.h"
     #include "hal_wwdgt.h"
+    #include "nu1671.h"
     #include "state_machine.h"
 
 extern sm_ctx_t sm;
@@ -210,6 +211,10 @@ static void handle_hil_chg_diag(void)
     }
     if (!hal_pdetb_get()) {
         flags |= 0x08U; /* PB0 PDETB asserted = wireless TX pad present */
+    }
+    nu1671_probe();
+    if (nu1671_is_present()) {
+        flags |= 0x10U; /* NU1671 ACKed at 0x34 = powered by a coil field */
     }
 
     uint8_t p[11] = {0U};

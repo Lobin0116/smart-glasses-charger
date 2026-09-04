@@ -16,6 +16,7 @@
 #include "ip5353.h"
 #include "led.h"
 #include "led_effect.h"
+#include "nu1671.h"
 #include "power_mgmt.h"
 #include "state_machine.h"
 #ifdef HIL_TEST
@@ -68,6 +69,10 @@ static void exti_callback(uint8_t line)
              * ended up where it started (close+open inside one handshake
              * burst — pure level polling would miss it). */
             sm.hall_edge_seen = true;
+        } else if (line == HAL_EXTI_LINE_NINT) {
+            /* NU1671 status/fault change; refresh_case_status consumes the
+             * latch and re-probes whether the chip is still on a pad. */
+            nu1671_on_interrupt();
         }
         exti_woken = true;
     }
@@ -102,6 +107,14 @@ static void refresh_case_status(void)
     bool charging = ip5353_is_charging();
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
+
+    /* NU1671 nINT edge: re-probe pad presence (the chip only ACKs while a
+     * coil field powers it). No periodic probing — off-pad the bus just
+     * NACKs, and nINT already covers every state change while on-pad. */
+    if (nu1671_has_event()) {
+        nu1671_clear_event();
+        nu1671_probe();
+    }
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }

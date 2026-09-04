@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 /* I2C0 single-master bus for the charger's analog companions: the CW2017 fuel
- * gauge (address 0x63) and the IP5353 power-path IC (control 0x74, status 0x75).
+ * gauge (address 0x63), the IP5353 power-path IC (control 0x74, status 0x75)
+ * and the NU1671 wireless receiver (0x34, through the Q2 1V8 level shifter).
  * The bus runs at 200 kHz on PB6 SCL / PB7 SDA, whose AF open-drain pin setup is
  * owned by hal_gpio. Every transfer is a blocking master operation bounded by a
  * 100 ms per-stage timeout against the SysTick counter; it returns 0 on success
