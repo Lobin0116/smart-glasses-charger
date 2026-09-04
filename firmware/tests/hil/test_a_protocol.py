@@ -99,7 +99,7 @@ def test_a15_glass_full_enters_maintaining(serial_port):
 
 
 def test_a05_crc_range(heartbeat_frame):
-    """A05: CRC 覆盖范围 = magic(4) + CRC byte 之后(5+)，不含 byte 4 自身."""
+    """A05: CRC 覆盖范围 = CRC byte 之后(5+)，不含魔数(0-3)与 byte 4 自身."""
     original_crc = heartbeat_frame[4]
 
     # 重算 CRC 必须等于帧里的存的 CRC 字节。

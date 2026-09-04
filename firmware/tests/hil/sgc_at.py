@@ -89,9 +89,10 @@ def crc8(data: bytes, init: int = 0x00) -> int:
 
 
 def frame_crc(buf: bytes) -> int:
-    crc = crc8(buf[0:4], 0x00)
-    crc = crc8(buf[5:], crc)
-    return crc
+    # CRC8 covers ONLY the bytes after the CRC byte (Size..payload) — the
+    # magic is NOT included. Matches the glasses (MetaBounds reference)
+    # implementation and firmware at_frame.c since the 2026-09-04 fix.
+    return crc8(buf[5:], 0x00)
 
 
 def pack_request(opcode: int, payload: bytes = b"", reserved: int = 0x00) -> bytes:
