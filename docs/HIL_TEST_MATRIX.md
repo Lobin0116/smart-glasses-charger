@@ -52,7 +52,7 @@ PC 是"眼镜端"角色：
 | A02 | 响应帧 Magic = `0x23415023` (#AP#) | PROT / TIM | PC 发合法响应，固件接受 | 固件按响应走流程（不 retry） | 核心 | P0 |
 | A03 | 帧头结构 10B：Magic(4)+CRC(1)+Size(2)+Opcode(2)+Status(1) | PROT | 抓任意帧量长度 | 头部 10 字节，Size 含 payload | 核心 | P0 |
 | A04 | CRC8 校验正确（256 字节查找表） | PROT | PC 算 CRC 对比收到的 CRC | 一致 | 核心 | P0 |
-| A05 | CRC 校验范围：Magic 到 Payload（不含自身） | PROT | 改 payload 一字节，重算 CRC | 固件接受新 CRC、拒绝旧 CRC | 核心 | P0 |
+| A05 | CRC 校验范围：CRC 字节之后（Size→Payload），不含 Magic | 实测对齐（2026-09-04 真机修正） | 改 payload 一字节，重算 CRC | 固件接受新 CRC、拒绝旧 CRC | 核心 | P0 |
 | A06 | 坏 CRC 帧被拒绝 | PROT | PC 故意发坏 CRC 响应 | 固件当无响应处理（retry） | 核心 | P1 |
 | A07 | Opcode 0x3001 心跳请求 | PROT / TIM | 抓握手期间帧 | opcode = 0x3001 | 核心 | P0 |
 | A08 | Opcode 0x3002 关机/船运 | PROT / TIM | 触发低电关机流程 | 收到 opcode = 0x3002 | 核心 | P0 |

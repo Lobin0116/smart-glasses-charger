@@ -96,6 +96,11 @@ Magic(4B) + CRC8(1B) + Size(2B) + Opcode(2B) + Status/Reserved(1B) + Payload(NB)
 - 请求Magic: 0x23415423（小端线上字节 `23 54 41 23`）
 - 响应Magic: 0x23415023（小端线上字节 `23 50 41 23`）
 - CRC-8 使用协议文档提供的256字节查找表
+- **CRC 覆盖范围（2026-09-04 真机修正）**：仅覆盖 **CRC 字节之后**的内容（Size/Opcode/Status/Payload），
+  **不含 Magic**。协议 PDF 只给了查找表与 `at_crc8()` 函数、未写明覆盖范围；此前固件按"含 Magic"实现，
+  与眼镜（MetaBounds 参考实现）互判 CRC 错误——真机握手死循环 `REQ → status=0x06 NAK`，HIL 未发现
+  （PC 模拟器抄了固件同款算法）。真机抓包实证：眼镜 HEART RSP（0x25）与 NAK（0x52）按"不含 Magic"
+  精确命中。修复见 main `99e1637` / V2 cherry-pick，`sgc_at.py` 同步（main `2f2fc7a`）。
 
 **字节序（2026-08-14 统一）**：全部多字节字段（Magic/Size/Opcode 及 payload 内的 index/fw_size）统一**小端**；
 `Size` 语义 = **payload 长度**（不含 10B 帧头），线上帧总长 = Size + 10。
