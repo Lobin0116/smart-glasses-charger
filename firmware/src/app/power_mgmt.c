@@ -24,6 +24,12 @@ void pm_enter_deep_sleep(void)
     exti_interrupt_flag_clear(EXTI_7);
     exti_interrupt_flag_clear(EXTI_8);
 
+    /* Cut the POGO analog-switch supply for the night: in Deep-Sleep only
+     * KEY/HALL/BAT/CHARGER/nINT can wake us, and sm_can_sleep already
+     * guarantees no POGO path is in use from IDLE. High-Z (not drive-high)
+     * so the board pull-up holds the PMOS off with zero pin current. */
+    hal_power_gate_off(HAL_POWER_GATE_POGO3V3);
+
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
      * while the CPU is asleep, hits its 20 ms window, and resets the part —
@@ -38,6 +44,9 @@ void pm_enter_deep_sleep(void)
      * IRC and every baud/timing calculation is off by 9x. */
     SystemInit();
     SystemCoreClockUpdate();
+
+    /* Back awake: restore the POGO supply before any handshake can run. */
+    hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
 }
 
 void pm_enter_standby(void)

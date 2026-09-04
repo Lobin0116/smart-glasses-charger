@@ -15,9 +15,14 @@ static bool present;
 
 void nu1671_on_interrupt(void) { event_pending = true; }
 
-bool nu1671_has_event(void) { return event_pending; }
-
-void nu1671_clear_event(void) { event_pending = false; }
+bool nu1671_poll(void)
+{
+    if (event_pending) {
+        event_pending = false;
+        nu1671_probe();
+    }
+    return present;
+}
 
 void nu1671_probe(void) { present = (hal_i2c_write(NU1671_I2C_ADDR, NULL, 0U) == 0); }
 

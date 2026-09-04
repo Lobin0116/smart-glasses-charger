@@ -173,47 +173,39 @@ void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
  * On: ODR=0 written before flipping to output, so the gate never glitches
  * high first. Off: back to a floating input — high-Z lets the board pull-up
  * hold the PMOS off, which is the sleep-safe state. */
-static hal_pin_t power_gate_pin(hal_power_gate_t gate)
-{
-    switch (gate) {
-        case HAL_POWER_GATE_POGO3V3:
-            return HAL_PIN_POGO3V3_EN;
-        case HAL_POWER_GATE_UART3V3:
-            return HAL_PIN_UART3V3_POWER_EN;
-        default:
-            return HAL_PIN_COUNT;
-    }
-}
+static const hal_pin_map_t gate_map[HAL_POWER_GATE_COUNT] = {
+    [HAL_POWER_GATE_POGO3V3] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
+    [HAL_POWER_GATE_UART3V3] = {HAL_UART3V3_POWER_EN_PORT, HAL_UART3V3_POWER_EN_PIN},
+};
 
 void hal_power_gate_on(hal_power_gate_t gate)
 {
-    hal_pin_t pin = power_gate_pin(gate);
-    if (pin >= HAL_PIN_COUNT) {
+    if (gate >= HAL_POWER_GATE_COUNT) {
         return;
     }
-    gpio_bit_reset(pin_map[pin].port, pin_map[pin].pin);
-    gpio_mode_set(pin_map[pin].port, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, pin_map[pin].pin);
-    gpio_output_options_set(pin_map[pin].port, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, pin_map[pin].pin);
+    const hal_pin_map_t *p = &gate_map[gate];
+    gpio_bit_reset(p->port, p->pin);
+    gpio_mode_set(p->port, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, p->pin);
+    gpio_output_options_set(p->port, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, p->pin);
 }
 
 void hal_power_gate_off(hal_power_gate_t gate)
 {
-    hal_pin_t pin = power_gate_pin(gate);
-    if (pin >= HAL_PIN_COUNT) {
+    if (gate >= HAL_POWER_GATE_COUNT) {
         return;
     }
-    gpio_mode_set(pin_map[pin].port, GPIO_MODE_INPUT, GPIO_PUPD_NONE, pin_map[pin].pin);
+    const hal_pin_map_t *p = &gate_map[gate];
+    gpio_mode_set(p->port, GPIO_MODE_INPUT, GPIO_PUPD_NONE, p->pin);
 }
 
 bool hal_power_gate_is_on(hal_power_gate_t gate)
 {
-    hal_pin_t pin = power_gate_pin(gate);
-    if (pin >= HAL_PIN_COUNT) {
+    if (gate >= HAL_POWER_GATE_COUNT) {
         return false;
     }
     /* Electrical readback: driven low = on; floating with the board pull-up
      * = off. CHG_DIAG reports the same value to the PC. */
-    return !hal_gpio_get(pin);
+    return gpio_input_bit_get(gate_map[gate].port, gate_map[gate].pin) == RESET;
 }
 
 void hal_1v8_enable(void) { hal_gpio_set(HAL_PIN_EN_1V8, true); }

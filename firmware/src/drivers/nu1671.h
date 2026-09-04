@@ -24,10 +24,13 @@
 #define NU1671_I2C_ADDR 0x34U
 
 /* Call from the EXTI callback on an nINT (PA7) falling edge. Latches a
- * pending event; the main loop consumes it via has/clear and re-probes. */
+ * pending event; the main loop consumes it via nu1671_poll(). */
 void nu1671_on_interrupt(void);
-bool nu1671_has_event(void);
-void nu1671_clear_event(void);
+
+/* Main-loop side: consume any pending nINT event (re-probing the bus when
+ * one occurred) and return the cached pad-presence flag. No periodic probe —
+ * off-pad the chip just NACKs, and nINT covers every state change on-pad. */
+bool nu1671_poll(void);
 
 /* Address-only I2C transaction: ACK means the chip is powered, i.e. the case
  * is on a transmitter pad. Updates the cached flag read by is_present(). */

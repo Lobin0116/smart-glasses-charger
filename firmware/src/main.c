@@ -108,13 +108,9 @@ static void refresh_case_status(void)
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
 
-    /* NU1671 nINT edge: re-probe pad presence (the chip only ACKs while a
-     * coil field powers it). No periodic probing — off-pad the bus just
-     * NACKs, and nINT already covers every state change while on-pad. */
-    if (nu1671_has_event()) {
-        nu1671_clear_event();
-        nu1671_probe();
-    }
+    /* NU1671 nINT edge: consume the latch and re-probe pad presence (the
+     * chip only ACKs while a coil field powers it). */
+    (void)nu1671_poll();
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }
