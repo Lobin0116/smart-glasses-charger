@@ -33,15 +33,14 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 option(HIL_TEST "Enable HIL test hooks (USART OPEN/CLOSE/KEY/RESET commands, no Deep-Sleep in IDLE)" OFF)
 
-# Optimization: production stays at the toolchain default (-O0) until -Os is
-# qualified on real hardware. The HIL build enables -Os because update_mode +
-# diagnostics overflow the 27 KB app partition at -O0; that build has been
-# field-validated with -Os (charge-diagnosis session on real cases).
-if(HIL_TEST)
-    set(OPT_LEVEL "-Os")
-else()
-    set(OPT_LEVEL "")
-endif()
+# Optimization: -Os for both builds. The HIL build has run -Os on real cases
+# since the charge-diagnosis session; production switched from -O0 on
+# 2026-09-04 (Board1_V2 bring-up) because the V2 adaptation left only ~130B
+# of the 27 KB app slot at -O0 — no headroom for the CH340/ADC/KEY-wake
+# features on the roadmap. All firmware timing is SysTick-ms based (no
+# cycle-exact loops, no bit-banged protocols), so the switch is
+# behavior-neutral; final qualification rides on the V2 board validation.
+set(OPT_LEVEL "-Os")
 
 set(MCU_FLAGS "-mcpu=cortex-m23 -mthumb")
 
