@@ -15,12 +15,14 @@ void pm_enter_deep_sleep(void)
     rcu_periph_clock_enable(RCU_PMU);
 
     /* Clear any pending EXTI flags before sleeping, so a stale edge does not
-     * bounce us right back out of WFI before the real wake event arrives. */
-    exti_interrupt_flag_clear(EXTI_4);
-    exti_interrupt_flag_clear(EXTI_8);
-    exti_interrupt_flag_clear(EXTI_11);
-    exti_interrupt_flag_clear(EXTI_12);
+     * bounce us right back out of WFI before the real wake event arrives.
+     * Lines: 2 = CHAGER_INT (PB2), 3 = KEY, 4 = HALL, 7 = nINT (PA7),
+     * 8 = BAT_INT (PA8) — must track hal_exti.h. */
+    exti_interrupt_flag_clear(EXTI_2);
     exti_interrupt_flag_clear(EXTI_3);
+    exti_interrupt_flag_clear(EXTI_4);
+    exti_interrupt_flag_clear(EXTI_7);
+    exti_interrupt_flag_clear(EXTI_8);
 
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting

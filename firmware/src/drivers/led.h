@@ -3,10 +3,11 @@
 
 #include <stdint.h>
 
-/* Status indicator LEDs. Today the board exposes four discrete GPIO LEDs
- * (PB8/PB9/PF6/PF7); a WS2812 on PB2 is under evaluation. The public interface
- * below is intentionally agnostic to the physical backend so the driver file
- * can be swapped without touching callers. */
+/* Status indicator LEDs. Board1_V2 exposes four discrete GPIO LEDs
+ * (PB8/PB9/PF6/PF7); the V1 WS2812 on PB2 was deleted (PB2 is now
+ * CHAGER_INT). The public interface below is intentionally agnostic to the
+ * physical backend so the driver file can be swapped without touching
+ * callers. */
 
 typedef enum
 {

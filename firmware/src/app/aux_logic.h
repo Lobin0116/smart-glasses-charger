@@ -19,16 +19,10 @@ ntc_zone_t ntc_get_zone(int8_t temp_c);
 bool ntc_should_reduce_charge(ntc_zone_t zone);
 bool ntc_should_stop_charge(ntc_zone_t zone);
 
-/* Task 26: Wired/wireless charge arbitration */
-typedef enum
-{
-    CHARGE_SRC_NONE,
-    CHARGE_SRC_USB,
-    CHARGE_SRC_WIRELESS
-} charge_src_t;
-
-charge_src_t charge_arbitrate(bool usb_valid, bool wireless_valid);
-void charge_enable_source(charge_src_t src);
+/* Wired/wireless arbitration (old Task 26) was deleted with the V1 board:
+ * on V2 the USB 5V and the NU1671 RX output are OR'd in hardware onto
+ * VBUS_IN, and the NU1671 is self-powered from the coil — there is nothing
+ * for software to arbitrate or enable. */
 
 /* Task 27: Recharge logic */
 bool recharge_check(uint8_t glass_soc, bool glass_full);

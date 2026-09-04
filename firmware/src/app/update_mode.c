@@ -14,7 +14,6 @@
     #include "hal_timer.h"
     #include "hal_usart.h"
     #include "hal_wwdgt.h"
-    #include "mt5706.h"
     #include "state_machine.h"
 
 extern sm_ctx_t sm;
@@ -201,16 +200,16 @@ static void handle_hil_chg_diag(void)
 
     uint8_t flags = 0U;
     if (hal_charger_int_get()) {
-        flags |= 0x01U; /* PA11 CHAGER_INT level */
+        flags |= 0x01U; /* PB2 CHAGER_INT level */
     }
-    if (hal_coil_int_get()) {
-        flags |= 0x02U; /* PA12 COIL_INT level */
+    if (hal_nint_get()) {
+        flags |= 0x02U; /* PA7 NU1671 nINT level (high = idle) */
     }
-    if (hal_gpio_get(HAL_PIN_CHIP_EN2)) {
-        flags |= 0x04U; /* PB11 actual pin level (readback) */
+    if (hal_power_gate_is_on(HAL_POWER_GATE_POGO3V3)) {
+        flags |= 0x04U; /* PB11 POGO3V3 gate state (on = pad low) */
     }
-    if (mt5706_is_enabled()) {
-        flags |= 0x08U; /* driver's idea of the enable state */
+    if (!hal_pdetb_get()) {
+        flags |= 0x08U; /* PB0 PDETB asserted = wireless TX pad present */
     }
 
     uint8_t p[11] = {0U};

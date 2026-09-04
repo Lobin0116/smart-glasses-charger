@@ -16,7 +16,6 @@
 #include "ip5353.h"
 #include "led.h"
 #include "led_effect.h"
-#include "mt5706.h"
 #include "power_mgmt.h"
 #include "state_machine.h"
 #ifdef HIL_TEST
@@ -43,7 +42,7 @@ static uint32_t last_soc_refresh;
 /* KEY still uses an EXTI event queue (the button needs debounce, and the
  * EXTI→button_on_press path was already working). HALL no longer uses this
  * queue — sm_tick polls hal_hall_get() directly at the top of each call. The
- * other EXTI sources (CHARGER/BAT/COIL) only need to wake the main loop so
+ * other EXTI sources (CHARGER/BAT/NINT) only need to wake the main loop so
  * refresh_case_status runs; exti_woken covers that and their pending bits
  * are cleared without any handler. */
 static volatile uint8_t exti_pending;
@@ -57,7 +56,7 @@ static void exti_callback(uint8_t line)
          * sm_tick on every call, so its edges don't need to be queued (and
          * queuing them caused the "single motion lost, repeated motion seen"
          * bug, because handshake blocking collapsed multiple edges into one
-         * queue bit). CHARGER/BAT/COIL just need exti_woken. */
+         * queue bit). CHARGER/BAT/NINT just need exti_woken. */
         if (line == HAL_EXTI_LINE_KEY) {
             uint8_t mask = (uint8_t)(1U << line);
             if ((exti_pending & mask) == 0U) {
@@ -87,11 +86,11 @@ static void process_exti_events(void)
         button_on_press();
     }
 
-    /* CHARGER_INT / BAT_INT / COIL_INT only needed to wake the loop; their
+    /* CHARGER_INT / BAT_INT / NINT only needed to wake the loop; their
      * bits (if ever set, which is rare on this board) are dropped here. */
     exti_pending &= (uint8_t)~((1U << HAL_EXTI_LINE_CHARGER_INT)
                                | (1U << HAL_EXTI_LINE_BAT_INT)
-                               | (1U << HAL_EXTI_LINE_COIL_INT));
+                               | (1U << HAL_EXTI_LINE_NINT));
 }
 
 static void refresh_case_status(void)
@@ -103,8 +102,6 @@ static void refresh_case_status(void)
     bool charging = ip5353_is_charging();
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
-
-    charge_arbitrate(input_valid, mt5706_has_event());
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
 }
@@ -129,6 +126,12 @@ int main(void)
     led_effect_init(&g_led_ctx);
     button_init();
     hal_pwr_idle();
+
+    /* The POGO analog-switch supply is gated on V2 (POGO3V3_EN, PMOS held
+     * off by a board pull-up at reset). The ET3328/BL1551B path is needed
+     * whenever the case is awake, so open the gate now; power_mgmt releases
+     * it before Deep-Sleep and this point re-arms it after a reset. */
+    hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
 
     /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;
@@ -185,7 +188,7 @@ int main(void)
          * (20 ms debounce not yet elapsed) is not lost. HALL doesn't need
          * this gate — sm_tick re-samples hal_hall_get() on every wake.
          *
-         * Gate on CHARGER_INT level too: while the IP5353 is awake (PA11
+         * Gate on CHARGER_INT level too: while the IP5353 is awake (PB2
          * pushed high) the case may still be charging or about to resume —
          * e.g. the input collapsed under a 2A+ load and the adapter will
          * recover. Sleeping then bricks the UI: on input recovery the INT

@@ -13,15 +13,14 @@ typedef struct
 } hal_exti_src_t;
 
 static const hal_exti_src_t exti_sources[] = {
+    /* CHARGER_INT (IP5353 INT via R49, PB2): the pin is high-Z in standby and
+     * driven HIGH when IP5353 is working (board R8 pulls standby low). USB
+     * plug produces a rising edge and unplug a falling edge; BOTH wake the
+     * main loop so refresh_case_status sees the new input_valid state. */
+    {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN2, HAL_EXTI_LINE_CHARGER_INT, EXTI_TRIG_BOTH},
+    /* nINT (NU1671, PA7): open-drain, active low on status change. */
+    {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN7, HAL_EXTI_LINE_NINT, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN8, HAL_EXTI_LINE_BAT_INT, EXTI_TRIG_FALLING},
-    /* CHARGER_INT (IP5353 INT, PA11): pin is high-Z in standby and driven
-     * HIGH when IP5353 is working (see hal_gpio.c — PA11 has an internal
-     * pull-DOWN). With that, USB plug produces a rising edge (high-Z->HIGH)
-     * and USB unplug produces a falling edge (HIGH->high-Z pulled low).
-     * BOTH wakes the main loop on either so refresh_case_status runs and
-     * the state machine sees the new IP5353 input_valid state. */
-    {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN11, HAL_EXTI_LINE_CHARGER_INT, EXTI_TRIG_BOTH},
-    {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN12, HAL_EXTI_LINE_COIL_INT, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN3, HAL_EXTI_LINE_KEY, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN4, HAL_EXTI_LINE_HALL, EXTI_TRIG_BOTH},
 };
@@ -51,9 +50,10 @@ void hal_exti_init(void)
         exti_interrupt_flag_clear(mask);
     }
 
-    /* Enable the NVIC vectors that cover the configured lines: line 3 lands in
-     * EXTI2_3 and lines 4/8/11/12 land in EXTI4_15. No board pin uses EXTI
-     * line 0 or 1, so EXTI0_1 keeps its default handler. */
+    /* Enable the NVIC vectors that cover the configured lines: lines 2 and 3
+     * (CHAGER_INT, KEY) land in EXTI2_3 and lines 4/7/8 (HALL, nINT, BAT_INT)
+     * in EXTI4_15. No board pin uses EXTI line 0 or 1, so EXTI0_1 keeps its
+     * default handler. */
     nvic_irq_enable(EXTI2_3_IRQn, HAL_EXTI_IRQ_PRIORITY);
     nvic_irq_enable(EXTI4_15_IRQn, HAL_EXTI_IRQ_PRIORITY);
 }
@@ -73,12 +73,15 @@ static void hal_exti_dispatch(uint8_t line)
     }
 }
 
-void EXTI2_3_IRQHandler(void) { hal_exti_dispatch(HAL_EXTI_LINE_KEY); }
+void EXTI2_3_IRQHandler(void)
+{
+    hal_exti_dispatch(HAL_EXTI_LINE_CHARGER_INT);
+    hal_exti_dispatch(HAL_EXTI_LINE_KEY);
+}
 
 void EXTI4_15_IRQHandler(void)
 {
     hal_exti_dispatch(HAL_EXTI_LINE_HALL);
+    hal_exti_dispatch(HAL_EXTI_LINE_NINT);
     hal_exti_dispatch(HAL_EXTI_LINE_BAT_INT);
-    hal_exti_dispatch(HAL_EXTI_LINE_CHARGER_INT);
-    hal_exti_dispatch(HAL_EXTI_LINE_COIL_INT);
 }

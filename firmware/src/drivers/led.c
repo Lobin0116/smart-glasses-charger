@@ -40,9 +40,7 @@ typedef struct
 
 static led_state_t leds[LED_COLOR_COUNT];
 
-/* Today a 4-GPIO LED bank. A WS2812 backend on PB2 would replace only this
- * body with a single-pixel frame write; the rest of the driver is unchanged,
- * though that backend would throttle refreshes to changes itself. */
+/* A 4-GPIO LED bank (the V1 WS2812/PB2 idea was dropped with Board1_V2). */
 static void led_hw_write(led_color_t color, bool on)
 {
     switch (color) {

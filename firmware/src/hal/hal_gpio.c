@@ -19,18 +19,21 @@ typedef struct
 static const hal_pin_map_t pin_map[HAL_PIN_COUNT] = {
     [HAL_PIN_LED_RED] = {HAL_LED_RED_PORT, HAL_LED_RED_PIN},
     [HAL_PIN_LED_GREEN] = {HAL_LED_GREEN_PORT, HAL_LED_GREEN_PIN},
-    [HAL_PIN_LED_2812] = {HAL_LED_2812_PORT, HAL_LED_2812_PIN},
     [HAL_PIN_LED_BLUE] = {HAL_LED_BLUE_PORT, HAL_LED_BLUE_PIN},
     [HAL_PIN_LED_WHITE] = {HAL_LED_WHITE_PORT, HAL_LED_WHITE_PIN},
     [HAL_PIN_EN_1V8] = {HAL_EN_1V8_PORT, HAL_EN_1V8_PIN},
-    [HAL_PIN_CHIP_EN2] = {HAL_CHIP_EN2_PORT, HAL_CHIP_EN2_PIN},
     [HAL_PIN_TR_SWITCH] = {HAL_TR_SWITCH_PORT, HAL_TR_SWITCH_PIN},
     [HAL_PIN_POGO_IN] = {HAL_POGO_IN_PORT, HAL_POGO_IN_PIN},
     [HAL_PIN_SHIP_CTRL] = {HAL_SHIP_CTRL_PORT, HAL_SHIP_CTRL_PIN},
     [HAL_PIN_RPD] = {HAL_RPD_PORT, HAL_RPD_PIN},
+    [HAL_PIN_PDET_EN] = {HAL_PDET_EN_PORT, HAL_PDET_EN_PIN},
+    [HAL_PIN_KEY5353] = {HAL_KEY5353_PORT, HAL_KEY5353_PIN},
+    [HAL_PIN_POGO3V3_EN] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
+    [HAL_PIN_UART3V3_POWER_EN] = {HAL_UART3V3_POWER_EN_PORT, HAL_UART3V3_POWER_EN_PIN},
     [HAL_PIN_BAT_INT] = {HAL_BAT_INT_PORT, HAL_BAT_INT_PIN},
+    [HAL_PIN_NINT] = {HAL_NINT_PORT, HAL_NINT_PIN},
     [HAL_PIN_CHARGER_INT] = {HAL_CHARGER_INT_PORT, HAL_CHARGER_INT_PIN},
-    [HAL_PIN_COIL_INT] = {HAL_COIL_INT_PORT, HAL_COIL_INT_PIN},
+    [HAL_PIN_PDETB] = {HAL_PDETB_PORT, HAL_PDETB_PIN},
     [HAL_PIN_KEY] = {HAL_KEY_PORT, HAL_KEY_PIN},
     [HAL_PIN_HALL] = {HAL_HALL_PORT, HAL_HALL_PIN},
     [HAL_PIN_I2C_SCL] = {HAL_I2C_SCL_PORT, HAL_I2C_SCL_PIN},
@@ -51,40 +54,58 @@ void hal_gpio_init(void)
      * otherwise drive the ODR reset value (0 = LED on) for a short glitch.
      * The bootloader nails these pins high with the same ordering, so from
      * BL entry onward they never float or drive low. */
-    gpio_bit_set(GPIOB, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_bit_set(GPIOB, GPIO_PIN_8 | GPIO_PIN_9);
     gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
-    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_2 | GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_8 | GPIO_PIN_9);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_8 | GPIO_PIN_9);
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
 
-    /* Control outputs: push-pull, 2MHz, initially low. */
+    /* Control outputs: push-pull, 2MHz, initially low (PDET_EN idles off).
+     * 1V8EN/TR/POGO_IN/SHIP_CTR/RPD keep their V1 levels. */
     gpio_mode_set(GPIOB,
                   GPIO_MODE_OUTPUT,
                   GPIO_PUPD_NONE,
-                  GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+                  GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
     gpio_output_options_set(GPIOB,
                             GPIO_OTYPE_PP,
                             GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
-    gpio_bit_reset(GPIOB, GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+                            GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+    gpio_bit_reset(GPIOB,
+                   GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+
+    /* 5353_KEY (PA15, IP5353 KEY via R48): idles released = high. ODR first,
+     * so the pad can never glitch low and fake a key press. */
+    gpio_bit_set(GPIOA, GPIO_PIN_15);
+    gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_15);
+    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_15);
+
+    /* Module power gates (PB5 UART3V3, PB11 POGO3V3): boot with both rails
+     * CUT — pads stay floating inputs so the board 10k pull-ups hold the
+     * PMOSes off. hal_power_gate_on() drives them low when a rail is needed. */
+    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5 | GPIO_PIN_11);
 
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
 
-    /* BAT_INT (CW2017 ALARM, PA8) and COIL_INT (MT5706, PA12): push-pull or
-     * open-drain outputs that assert low; pull-up gives a defined idle level. */
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_8 | GPIO_PIN_12);
+    /* BAT_INT (CW2017 ALARM, PA8) and nINT (NU1671, PA7): open-drain outputs
+     * that assert low. Neither has a board pull-up on its 3V3 side, so the
+     * internal pull-up provides the idle high level. */
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_7 | GPIO_PIN_8);
 
-    /* CHARGER_INT (IP5353 INT, PA11): per IP5353 datasheet the pin is high-Z
-     * while the chip is in standby and driven HIGH (push-pull) while working.
-     * A pull-UP masks the standby->working transition (both states read high
-     * through the pull-up), so USB plug would never produce an edge to wake
-     * the MCU. A pull-DOWN instead yields:
-     *   standby (high-Z) -> PA11 = LOW
-     *   working (push-pull HIGH) -> PA11 = HIGH
-     * so USB plug produces a clean rising edge that EXTI can latch. */
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLDOWN, GPIO_PIN_11);
+    /* PDETB (NU1671 GP0 via Q3 shifter, PB0): the 3V3 side of the shifter
+     * has no board pull-up either (only the 1V8 side does, R38), so pull up
+     * internally — high = transmitter pad absent. */
+    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_0);
+
+    /* CHARGER_INT (IP5353 INT via R49, PB2): per the IP5353 datasheet the pin
+     * is high-Z while the chip is in standby and driven HIGH (push-pull)
+     * while working. Board R8 (33k) pulls the net low in standby, so:
+     *   standby (high-Z) -> PB2 = LOW via R8
+     *   working (push-pull HIGH) -> PB2 = HIGH
+     * USB plug/unplug therefore produce clean opposing edges for the
+     * dual-edge EXTI. No internal pull needed. */
+    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_2);
 
     /* I2C0: PB6 SCL / PB7 SDA, AF1 open-drain with pull-up. */
     gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
@@ -148,17 +169,56 @@ void hal_led_white_off(void) { hal_gpio_set(HAL_PIN_LED_WHITE, true); }
 
 void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
 
-void hal_led_2812_on(void) { hal_gpio_set(HAL_PIN_LED_2812, false); }
+/* --- Module power gates ---------------------------------------------------
+ * On: ODR=0 written before flipping to output, so the gate never glitches
+ * high first. Off: back to a floating input — high-Z lets the board pull-up
+ * hold the PMOS off, which is the sleep-safe state. */
+static hal_pin_t power_gate_pin(hal_power_gate_t gate)
+{
+    switch (gate) {
+        case HAL_POWER_GATE_POGO3V3:
+            return HAL_PIN_POGO3V3_EN;
+        case HAL_POWER_GATE_UART3V3:
+            return HAL_PIN_UART3V3_POWER_EN;
+        default:
+            return HAL_PIN_COUNT;
+    }
+}
 
-void hal_led_2812_off(void) { hal_gpio_set(HAL_PIN_LED_2812, true); }
+void hal_power_gate_on(hal_power_gate_t gate)
+{
+    hal_pin_t pin = power_gate_pin(gate);
+    if (pin >= HAL_PIN_COUNT) {
+        return;
+    }
+    gpio_bit_reset(pin_map[pin].port, pin_map[pin].pin);
+    gpio_mode_set(pin_map[pin].port, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, pin_map[pin].pin);
+    gpio_output_options_set(pin_map[pin].port, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, pin_map[pin].pin);
+}
+
+void hal_power_gate_off(hal_power_gate_t gate)
+{
+    hal_pin_t pin = power_gate_pin(gate);
+    if (pin >= HAL_PIN_COUNT) {
+        return;
+    }
+    gpio_mode_set(pin_map[pin].port, GPIO_MODE_INPUT, GPIO_PUPD_NONE, pin_map[pin].pin);
+}
+
+bool hal_power_gate_is_on(hal_power_gate_t gate)
+{
+    hal_pin_t pin = power_gate_pin(gate);
+    if (pin >= HAL_PIN_COUNT) {
+        return false;
+    }
+    /* Electrical readback: driven low = on; floating with the board pull-up
+     * = off. CHG_DIAG reports the same value to the PC. */
+    return !hal_gpio_get(pin);
+}
 
 void hal_1v8_enable(void) { hal_gpio_set(HAL_PIN_EN_1V8, true); }
 
 void hal_1v8_disable(void) { hal_gpio_set(HAL_PIN_EN_1V8, false); }
-
-void hal_chip_en2_enable(void) { hal_gpio_set(HAL_PIN_CHIP_EN2, true); }
-
-void hal_chip_en2_disable(void) { hal_gpio_set(HAL_PIN_CHIP_EN2, false); }
 
 void hal_tr_switch_set(bool value) { hal_gpio_set(HAL_PIN_TR_SWITCH, value); }
 
@@ -169,6 +229,10 @@ void hal_ship_control_set(bool value) { hal_gpio_set(HAL_PIN_SHIP_CTRL, value); 
 void hal_rpd_enable(void) { hal_gpio_set(HAL_PIN_RPD, true); }
 
 void hal_rpd_disable(void) { hal_gpio_set(HAL_PIN_RPD, false); }
+
+void hal_pdet_en_set(bool enable) { hal_gpio_set(HAL_PIN_PDET_EN, enable); }
+
+void hal_5353_key_set(bool pressed) { hal_gpio_set(HAL_PIN_KEY5353, !pressed); }
 
 bool hal_key_pressed(void)
 {
@@ -191,4 +255,6 @@ bool hal_bat_int_get(void) { return hal_gpio_get(HAL_PIN_BAT_INT); }
 
 bool hal_charger_int_get(void) { return hal_gpio_get(HAL_PIN_CHARGER_INT); }
 
-bool hal_coil_int_get(void) { return hal_gpio_get(HAL_PIN_COIL_INT); }
+bool hal_nint_get(void) { return hal_gpio_get(HAL_PIN_NINT); }
+
+bool hal_pdetb_get(void) { return hal_gpio_get(HAL_PIN_PDETB); }

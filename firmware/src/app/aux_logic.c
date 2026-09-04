@@ -3,7 +3,6 @@
 #include "charge_flow.h"
 #include "hal_gpio.h"
 #include "led.h"
-#include "mt5706.h"
 
 /* --- Task 25: NTC temperature protection --- */
 
@@ -28,35 +27,8 @@ bool ntc_should_reduce_charge(ntc_zone_t zone) { return zone == NTC_COLD || zone
 
 bool ntc_should_stop_charge(ntc_zone_t zone) { return zone == NTC_CRITICAL; }
 
-/* --- Task 26: Wired/wireless charge arbitration --- */
-
-charge_src_t charge_arbitrate(bool usb_valid, bool wireless_valid)
-{
-    if (usb_valid) {
-        mt5706_disable();
-        return CHARGE_SRC_USB;
-    }
-    if (wireless_valid) {
-        mt5706_enable();
-        return CHARGE_SRC_WIRELESS;
-    }
-    mt5706_disable();
-    return CHARGE_SRC_NONE;
-}
-
-void charge_enable_source(charge_src_t src)
-{
-    switch (src) {
-        case CHARGE_SRC_WIRELESS:
-            mt5706_enable();
-            break;
-        case CHARGE_SRC_USB:
-        case CHARGE_SRC_NONE:
-        default:
-            mt5706_disable();
-            break;
-    }
-}
+/* Wired/wireless arbitration (old Task 26) was deleted with the V1 board —
+ * see aux_logic.h for the V2 rationale. */
 
 /* --- Task 27: Recharge logic --- */
 
