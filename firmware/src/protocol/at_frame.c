@@ -50,13 +50,14 @@ static uint32_t at_frame_get_le32(const uint8_t *p)
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-/* CRC8 spans the whole frame except the CRC byte: the magic, then everything
- * past the CRC byte through the last payload byte. */
+/* CRC8 covers ONLY the bytes after the CRC byte (Size..last payload byte) —
+ * the magic is NOT included. Verified against real-glasses captures: both a
+ * HEART RSP (wire CRC 0x25) and a CRC-error RSP (0x52) match this span, while
+ * the previous magic-inclusive span never matched a glasses frame. */
 static uint8_t at_frame_crc(const uint8_t *buf, uint16_t total_len)
 {
-    uint8_t crc = at_crc8((uint8_t *)buf, AT_FRAME_OFFSET_CRC, AT_FRAME_CRC_INIT);
-    crc = at_crc8((uint8_t *)buf + AT_FRAME_OFFSET_CRC + 1U, (uint16_t)(total_len - (AT_FRAME_OFFSET_CRC + 1U)), crc);
-    return crc;
+    return at_crc8((uint8_t *)buf + AT_FRAME_OFFSET_CRC + 1U,
+                   (uint16_t)(total_len - (AT_FRAME_OFFSET_CRC + 1U)), AT_FRAME_CRC_INIT);
 }
 
 static uint16_t at_frame_pack(
