@@ -40,6 +40,7 @@ typedef enum
 {
     HAL_POWER_GATE_POGO3V3,  /* PB11: ET3328 + BL1551B 3V3 side */
     HAL_POWER_GATE_UART3V3,  /* PB5: CH340K supply — on while awake, high-Z in Deep-Sleep */
+    HAL_POWER_GATE_BAT,      /* PC13: Q4 battery-rail PMOS via fly-wire — same policy */
     HAL_POWER_GATE_COUNT
 } hal_power_gate_t;
 

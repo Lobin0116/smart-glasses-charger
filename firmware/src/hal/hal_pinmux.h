@@ -47,6 +47,11 @@
 #define HAL_POGO3V3_EN_PIN        GPIO_PIN_11
 #define HAL_UART3V3_POWER_EN_PORT GPIOB /* UART3V3: CH340K supply */
 #define HAL_UART3V3_POWER_EN_PIN  GPIO_PIN_5
+/* Battery-rail PMOS Q4 (gate net IP5353_OUT_EN, 2.2k pull-up R4): originally
+ * undriven — the top V2 hardware bug. Fly-wired to PC13 (2026-09-14 user
+ * rework); same active-LOW PMOS gate pattern as the module switches. */
+#define HAL_BAT_PMOS_EN_PORT      GPIOC /* BAT_EN: Q4 gate via fly-wire */
+#define HAL_BAT_PMOS_EN_PIN       GPIO_PIN_13
 
 /* Interrupt inputs */
 #define HAL_BAT_INT_PORT     GPIOA /* fuel gauge interrupt, pull-up */

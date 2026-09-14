@@ -47,6 +47,7 @@ void hal_gpio_init(void)
     /* GPIO ports live on the AHB clock domain. */
     rcu_periph_clock_enable(RCU_GPIOA);
     rcu_periph_clock_enable(RCU_GPIOB);
+    rcu_periph_clock_enable(RCU_GPIOC);
     rcu_periph_clock_enable(RCU_GPIOF);
 
     /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on).
@@ -80,10 +81,12 @@ void hal_gpio_init(void)
     gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_15);
     gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_15);
 
-    /* Module power gates (PB5 UART3V3, PB11 POGO3V3): boot with both rails
-     * CUT — pads stay floating inputs so the board 10k pull-ups hold the
-     * PMOSes off. hal_power_gate_on() drives them low when a rail is needed. */
+    /* Module power gates (PB5 UART3V3, PB11 POGO3V3, PC13 BAT via fly-wire):
+     * boot with all rails CUT — pads stay floating inputs so the board
+     * pull-ups hold the PMOSes off. hal_power_gate_on() drives them low when
+     * a rail is needed. */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5 | GPIO_PIN_11);
+    gpio_mode_set(GPIOC, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_13);
 
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
@@ -176,6 +179,7 @@ void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
 static const hal_pin_map_t gate_map[HAL_POWER_GATE_COUNT] = {
     [HAL_POWER_GATE_POGO3V3] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
     [HAL_POWER_GATE_UART3V3] = {HAL_UART3V3_POWER_EN_PORT, HAL_UART3V3_POWER_EN_PIN},
+    [HAL_POWER_GATE_BAT] = {HAL_BAT_PMOS_EN_PORT, HAL_BAT_PMOS_EN_PIN},
 };
 
 void hal_power_gate_on(hal_power_gate_t gate)
