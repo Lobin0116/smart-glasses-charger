@@ -141,6 +141,10 @@ int main(void)
      * whenever the case is awake, so open the gate now; power_mgmt releases
      * it before Deep-Sleep and this point re-arms it after a reset. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
+    /* UART3V3 (CH340K supply) follows the same awake-on / asleep-high-Z
+     * policy: without this the host never sees a serial port while the case
+     * is running. */
+    hal_power_gate_on(HAL_POWER_GATE_UART3V3);
 
     /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;

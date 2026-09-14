@@ -29,6 +29,9 @@ void pm_enter_deep_sleep(void)
      * guarantees no POGO path is in use from IDLE. High-Z (not drive-high)
      * so the board pull-up holds the PMOS off with zero pin current. */
     hal_power_gate_off(HAL_POWER_GATE_POGO3V3);
+    /* CH340K supply too: the host link is dead while asleep anyway, and the
+     * gate pad must go high-Z so the board pull-up cuts the rail. */
+    hal_power_gate_off(HAL_POWER_GATE_UART3V3);
 
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
@@ -47,6 +50,7 @@ void pm_enter_deep_sleep(void)
 
     /* Back awake: restore the POGO supply before any handshake can run. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
+    hal_power_gate_on(HAL_POWER_GATE_UART3V3);
 }
 
 void pm_enter_standby(void)
