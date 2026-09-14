@@ -18,9 +18,11 @@ static hal_pwr_state_t pwr_state = HAL_PWR_IDLE;
 
 void hal_pwr_idle(void)
 {
-    /* Drop the LDO first so the 1.8V rail never back-feeds while the switch
-     * re-routes. RPD stays low so the bus is left high-impedance, not bled. */
-    hal_1v8_disable();
+    /* On V2 the 1V8 rail stays up while the case is awake: NU1671's I2C runs
+     * through the NX7002AK shifters whose 1V8 side is powered by this LDO —
+     * dropping it here would make every nu1671_probe() fail between comm
+     * windows. Only Deep-Sleep (power_mgmt.c) and POGO mode changes touch the
+     * LDO now. RPD stays low so the bus is left high-impedance, not bled. */
     hal_pogo_in_set(false);
     hal_rpd_disable();
     pwr_state = HAL_PWR_IDLE;
@@ -30,8 +32,7 @@ void hal_pwr_enter_charge(void)
 {
     /* Same pin levels as idle; the difference is that the IP5353 boost is on,
      * which the IP5353 driver owns. The mode is tracked so a charge pulse can
-     * restore it afterwards. */
-    hal_1v8_disable();
+     * restore it afterwards. The 1V8 LDO stays on (see hal_pwr_idle). */
     hal_pogo_in_set(false);
     hal_rpd_disable();
     pwr_state = HAL_PWR_CHARGE;

@@ -32,6 +32,9 @@ void pm_enter_deep_sleep(void)
     /* CH340K supply too: the host link is dead while asleep anyway, and the
      * gate pad must go high-Z so the board pull-up cuts the rail. */
     hal_power_gate_off(HAL_POWER_GATE_UART3V3);
+    /* 1V8 LDO down for the night too — nothing on that rail can be talked to
+     * while asleep (NU1671 is field-powered, the POGO switch is unpowered). */
+    hal_1v8_disable();
 
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
@@ -51,6 +54,7 @@ void pm_enter_deep_sleep(void)
     /* Back awake: restore the POGO supply before any handshake can run. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
     hal_power_gate_on(HAL_POWER_GATE_UART3V3);
+    hal_1v8_enable();
 }
 
 void pm_enter_standby(void)

@@ -145,6 +145,9 @@ int main(void)
      * policy: without this the host never sees a serial port while the case
      * is running. */
     hal_power_gate_on(HAL_POWER_GATE_UART3V3);
+    /* 1V8 LDO on whenever awake (NU1671 I2C shifters + POGO UART path are
+     * fed from it); power_mgmt drops it before Deep-Sleep. */
+    hal_1v8_enable();
 
     /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;
