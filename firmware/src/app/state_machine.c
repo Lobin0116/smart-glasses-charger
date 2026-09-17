@@ -271,6 +271,9 @@ void sm_tick(sm_ctx_t *ctx)
     if (ctx->hall_edge_seen || now_open != ctx->lid_open) {
         ctx->hall_edge_seen = false;
         ctx->lid_open = now_open;
+        /* Keep the HALL pad's pull matched to its new level — while awake a
+         * pull-up against the closed lid's low level leaks ~80-100µA too. */
+        hal_hall_pull_sync();
         if (now_open) {
             if (ctx->state == ST_IDLE) {
                 sm_enter_state(ctx, ST_HANDSHAKING);

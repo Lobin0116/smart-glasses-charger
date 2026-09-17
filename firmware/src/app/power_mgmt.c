@@ -45,6 +45,9 @@ void pm_enter_deep_sleep(void)
      * diodes (KEY worst: R48 is only 100R). Bench finding 2026-09-14. */
     hal_i2c_pins_sleep();
     hal_5353_key_release();
+    /* HALL pull follows the pad level (down while the closed lid drives it
+     * low) — a fixed pull-up would burn ~80-100µA all night. */
+    hal_hall_pull_sync();
 
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
@@ -68,6 +71,7 @@ void pm_enter_deep_sleep(void)
     hal_1v8_enable();
     hal_i2c_pins_resume();
     hal_5353_key_rearm();
+    hal_hall_pull_sync();
 }
 
 void pm_enter_standby(void)

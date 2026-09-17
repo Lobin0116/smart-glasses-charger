@@ -264,6 +264,20 @@ bool hal_hall_get(void)
 #endif
 }
 
+void hal_hall_pull_sync(void)
+{
+#ifndef HIL_TEST
+    /* Match the pad's pull to its current level: a weak pull-up holding the
+     * line while the (closed-lid) hall drives it low burns ~80-100µA for the
+     * whole sleep. With the pull always agreeing with the driven level there
+     * is no voltage across it, awake or asleep. Works for push-pull and
+     * open-drain halls alike; only a missing FPC (floating line) can chatter,
+     * and that just costs a spurious wake on a faulted unit. */
+    const uint32_t pupd = gpio_input_bit_get(HAL_HALL_PORT, HAL_HALL_PIN) ? GPIO_PUPD_PULLUP : GPIO_PUPD_PULLDOWN;
+    gpio_mode_set(HAL_HALL_PORT, GPIO_MODE_INPUT, pupd, HAL_HALL_PIN);
+#endif
+}
+
 bool hal_bat_int_get(void) { return hal_gpio_get(HAL_PIN_BAT_INT); }
 
 bool hal_charger_int_get(void) { return hal_gpio_get(HAL_PIN_CHARGER_INT); }

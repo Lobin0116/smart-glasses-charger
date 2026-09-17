@@ -69,6 +69,10 @@ void hal_5353_key_rearm(void);
 bool hal_key_pressed(void);
 bool hal_key_get(void);
 bool hal_hall_get(void);
+/* Re-match the HALL pad's internal pull to its current level (pull-up when
+ * high, pull-down when low) so the pull never fights the hall's driven level.
+ * Call on lid transitions, at Deep-Sleep entry and after wake. */
+void hal_hall_pull_sync(void);
 bool hal_bat_int_get(void);
 bool hal_charger_int_get(void);
 bool hal_nint_get(void);
