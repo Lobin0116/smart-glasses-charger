@@ -108,6 +108,17 @@ static void refresh_case_status(void)
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
 
+    /* Boost handover: while the IP5353 actually charges (VIN plugged) it owns
+     * the 5V path — drop the MT3608L so the two never fight and no boost
+     * current is wasted. Reads failing (IP5353 unreachable / protection
+     * mode) report charging=false, keeping the boost on: that is exactly the
+     * battery-only case the boost exists for. */
+    if (charging) {
+        hal_boost_5v_disable();
+    } else {
+        hal_boost_5v_enable();
+    }
+
     /* NU1671 nINT edge: consume the latch and re-probe pad presence (the
      * chip only ACKs while a coil field powers it). */
     (void)nu1671_poll();
@@ -141,13 +152,12 @@ int main(void)
      * whenever the case is awake, so open the gate now; power_mgmt releases
      * it before Deep-Sleep and this point re-arms it after a reset. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
-    /* UART3V3 (CH340K supply) follows the same awake-on / asleep-high-Z
-     * policy: without this the host never sees a serial port while the case
-     * is running. */
-    hal_power_gate_on(HAL_POWER_GATE_UART3V3);
     /* Battery rail (Q4 via PC13 fly-wire): on before anything that needs the
      * IP5353/MT3608L side — CW2017/IP5353 status reads happen right after. */
     hal_power_gate_on(HAL_POWER_GATE_BAT);
+    /* MT3608L boost (PB5 fly-wire): the battery→5V path while awake — the
+     * IP5353 cannot re-enable its own 5V after a battery cold attach. */
+    hal_boost_5v_enable();
     /* 1V8 LDO on whenever awake (NU1671 I2C shifters + POGO UART path are
      * fed from it); power_mgmt drops it before Deep-Sleep. */
     hal_1v8_enable();

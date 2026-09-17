@@ -39,7 +39,6 @@ void hal_led_white_toggle(void);
 typedef enum
 {
     HAL_POWER_GATE_POGO3V3,  /* PB11: ET3328 + BL1551B 3V3 side */
-    HAL_POWER_GATE_UART3V3,  /* PB5: CH340K supply — on while awake, high-Z in Deep-Sleep */
     HAL_POWER_GATE_BAT,      /* PC13: Q4 battery-rail PMOS via fly-wire — same policy */
     HAL_POWER_GATE_COUNT
 } hal_power_gate_t;
@@ -51,6 +50,11 @@ bool hal_power_gate_is_on(hal_power_gate_t gate);
 /* Power and control outputs. */
 void hal_1v8_enable(void);
 void hal_1v8_disable(void);
+/* MT3608L battery→5V boost enable (PB5, ACTIVE-HIGH): high while awake, low
+ * in Deep-Sleep, forced low while the IP5353 actively charges. */
+void hal_boost_5v_enable(void);
+void hal_boost_5v_disable(void);
+bool hal_boost_5v_is_enabled(void);
 void hal_tr_switch_set(bool value);
 void hal_pogo_in_set(bool value);
 void hal_ship_control_set(bool value);

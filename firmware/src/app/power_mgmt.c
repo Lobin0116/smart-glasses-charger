@@ -32,7 +32,12 @@ void pm_enter_deep_sleep(void)
     hal_power_gate_off(HAL_POWER_GATE_POGO3V3);
     /* CH340K supply too: the host link is dead while asleep anyway, and the
      * gate pad must go high-Z so the board pull-up cuts the rail. */
-    hal_power_gate_off(HAL_POWER_GATE_UART3V3);
+    /* MT3608L boost down for the night (PB5 active-high): no 5V path is
+     * needed asleep, and it would drain the battery through the coil of the
+     * boost itself. */
+    hal_boost_5v_disable();
+    /* CH340K note: the old UART3V3 gate on PB5 is retired (pad reassigned to
+     * the boost EN); Q8's rail now follows whatever the board wires do. */
     /* Battery rail too: cutting Q4 is the whole point of the deep-sleep
      * current budget — IP5353 + MT3608L would drain the cell otherwise. */
     hal_power_gate_off(HAL_POWER_GATE_BAT);
@@ -66,7 +71,7 @@ void pm_enter_deep_sleep(void)
 
     /* Back awake: restore the POGO supply before any handshake can run. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
-    hal_power_gate_on(HAL_POWER_GATE_UART3V3);
+    hal_boost_5v_enable();
     hal_power_gate_on(HAL_POWER_GATE_BAT);
     hal_1v8_enable();
     hal_i2c_pins_resume();

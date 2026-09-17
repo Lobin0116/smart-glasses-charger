@@ -29,7 +29,7 @@ static const hal_pin_map_t pin_map[HAL_PIN_COUNT] = {
     [HAL_PIN_PDET_EN] = {HAL_PDET_EN_PORT, HAL_PDET_EN_PIN},
     [HAL_PIN_KEY5353] = {HAL_KEY5353_PORT, HAL_KEY5353_PIN},
     [HAL_PIN_POGO3V3_EN] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
-    [HAL_PIN_UART3V3_POWER_EN] = {HAL_UART3V3_POWER_EN_PORT, HAL_UART3V3_POWER_EN_PIN},
+    [HAL_PIN_BOOST_5V_EN] = {HAL_BOOST_5V_EN_PORT, HAL_BOOST_5V_EN_PIN},
     [HAL_PIN_BAT_INT] = {HAL_BAT_INT_PORT, HAL_BAT_INT_PIN},
     [HAL_PIN_NINT] = {HAL_NINT_PORT, HAL_NINT_PIN},
     [HAL_PIN_CHARGER_INT] = {HAL_CHARGER_INT_PORT, HAL_CHARGER_INT_PIN},
@@ -62,18 +62,20 @@ void hal_gpio_init(void)
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
 
-    /* Control outputs: push-pull, 2MHz, initially low (PDET_EN idles off).
+    /* Control outputs: push-pull, 2MHz, initially low (PDET_EN idles off;
+     * PB5 = MT3608L EN idles off until the awake policy enables it).
      * 1V8EN/TR/POGO_IN/SHIP_CTR/RPD keep their V1 levels. */
     gpio_mode_set(GPIOB,
                   GPIO_MODE_OUTPUT,
                   GPIO_PUPD_NONE,
-                  GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+                  GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
     gpio_output_options_set(GPIOB,
                             GPIO_OTYPE_PP,
                             GPIO_OSPEED_2MHZ,
-                            GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+                            GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14
+                                | GPIO_PIN_15);
     gpio_bit_reset(GPIOB,
-                   GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+                   GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
 
     /* 5353_KEY (PA15, IP5353 KEY via R48): idles released = high. ODR first,
      * so the pad can never glitch low and fake a key press. */
@@ -81,11 +83,12 @@ void hal_gpio_init(void)
     gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_15);
     gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_15);
 
-    /* Module power gates (PB5 UART3V3, PB11 POGO3V3, PC13 BAT via fly-wire):
-     * boot with all rails CUT — pads stay floating inputs so the board
-     * pull-ups hold the PMOSes off. hal_power_gate_on() drives them low when
-     * a rail is needed. */
-    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5 | GPIO_PIN_11);
+    /* Module power gates (PB11 POGO3V3, PC13 BAT via fly-wire): boot with
+     * both rails CUT — pads stay floating inputs so the board pull-ups hold
+     * the PMOSes off. hal_power_gate_on() drives them low when a rail is
+     * needed. PB5 left out: it is the MT3608L EN fly-wire, an ACTIVE-HIGH
+     * push-pull output configured in the control-outputs block below. */
+    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_11);
     gpio_mode_set(GPIOC, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_13);
 
     /* User inputs with pull-up (KEY, HALL). */
@@ -178,7 +181,6 @@ void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
  * hold the PMOS off, which is the sleep-safe state. */
 static const hal_pin_map_t gate_map[HAL_POWER_GATE_COUNT] = {
     [HAL_POWER_GATE_POGO3V3] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
-    [HAL_POWER_GATE_UART3V3] = {HAL_UART3V3_POWER_EN_PORT, HAL_UART3V3_POWER_EN_PIN},
     [HAL_POWER_GATE_BAT] = {HAL_BAT_PMOS_EN_PORT, HAL_BAT_PMOS_EN_PIN},
 };
 
@@ -215,6 +217,12 @@ bool hal_power_gate_is_on(hal_power_gate_t gate)
 void hal_1v8_enable(void) { hal_gpio_set(HAL_PIN_EN_1V8, true); }
 
 void hal_1v8_disable(void) { hal_gpio_set(HAL_PIN_EN_1V8, false); }
+
+void hal_boost_5v_enable(void) { hal_gpio_set(HAL_PIN_BOOST_5V_EN, true); }
+
+void hal_boost_5v_disable(void) { hal_gpio_set(HAL_PIN_BOOST_5V_EN, false); }
+
+bool hal_boost_5v_is_enabled(void) { return hal_gpio_get(HAL_PIN_BOOST_5V_EN); }
 
 void hal_tr_switch_set(bool value) { hal_gpio_set(HAL_PIN_TR_SWITCH, value); }
 
