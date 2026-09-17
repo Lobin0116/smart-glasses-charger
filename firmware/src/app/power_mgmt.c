@@ -2,6 +2,7 @@
 
 #include "gd32e23x.h"
 #include "hal_gpio.h"
+#include "hal_i2c.h"
 
 /* Provided by the CMSIS startup file. Re-running it after a Deep-Sleep wake
  * is the documented way to restore the PLL: with PMU_LDO_LOWPOWER the part
@@ -39,6 +40,12 @@ void pm_enter_deep_sleep(void)
      * while asleep (NU1671 is field-powered, the POGO switch is unpowered). */
     hal_1v8_disable();
 
+    /* Float the I2C bus pins and the IP5353 KEY drive: with Q4 cut the IP5353
+     * is unpowered, and any level we hold on those nets back-feeds its ESD
+     * diodes (KEY worst: R48 is only 100R). Bench finding 2026-09-14. */
+    hal_i2c_pins_sleep();
+    hal_5353_key_release();
+
     /* PMU_LDO_LOWPOWER stops the APB1 clock in Deep-Sleep, which freezes
      * WWDGT (clocked from PCLK1). Without this, the watchdog keeps counting
      * while the CPU is asleep, hits its 20 ms window, and resets the part —
@@ -59,6 +66,8 @@ void pm_enter_deep_sleep(void)
     hal_power_gate_on(HAL_POWER_GATE_UART3V3);
     hal_power_gate_on(HAL_POWER_GATE_BAT);
     hal_1v8_enable();
+    hal_i2c_pins_resume();
+    hal_5353_key_rearm();
 }
 
 void pm_enter_standby(void)

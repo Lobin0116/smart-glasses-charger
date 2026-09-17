@@ -230,6 +230,23 @@ void hal_pdet_en_set(bool enable) { hal_gpio_set(HAL_PIN_PDET_EN, enable); }
 
 void hal_5353_key_set(bool pressed) { hal_gpio_set(HAL_PIN_KEY5353, !pressed); }
 
+void hal_5353_key_release(void)
+{
+    /* Float the KEY drive: with Q4 cut the IP5353 is unpowered and a high
+     * level on this pad pours through its ESD diodes via R48 (only 100R).
+     * The 5353_KEY net has no board pull-up, so high-Z = truly dead. */
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
+}
+
+void hal_5353_key_rearm(void)
+{
+    /* Same ordering as hal_gpio_init: ODR high BEFORE the mode switch, so the
+     * pad never glitches low (a low would read as a key press). */
+    gpio_bit_set(GPIOA, HAL_KEY5353_PIN);
+    gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
+    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, HAL_KEY5353_PIN);
+}
+
 bool hal_key_pressed(void)
 {
     /* KEY is pulled up and reads low while pressed. */

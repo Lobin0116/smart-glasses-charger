@@ -58,6 +58,12 @@ void hal_rpd_enable(void);
 void hal_rpd_disable(void);
 void hal_pdet_en_set(bool enable);
 void hal_5353_key_set(bool pressed);
+/* Deep-Sleep pair for the KEY line: release() floats PA15 so the idle-high
+ * push-pull level stops feeding the (battery-cut, unpowered) IP5353 KEY pin
+ * through R48 100R; rearm() restores the drive with the glitch-free
+ * ODR-high-before-output ordering from hal_gpio_init. */
+void hal_5353_key_release(void);
+void hal_5353_key_rearm(void);
 
 /* Input reads (return the live pad level). */
 bool hal_key_pressed(void);

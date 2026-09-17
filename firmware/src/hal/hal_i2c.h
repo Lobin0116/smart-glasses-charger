@@ -35,4 +35,12 @@ int hal_i2c_read_reg(uint8_t addr7, uint8_t reg, uint8_t *buf, uint16_t len);
  * but can also be invoked proactively after an error. */
 void hal_i2c_bus_recover(void);
 
+/* Deep-Sleep support. With the battery rail cut (Q4), the IP5353 is unpowered
+ * and any level held on SCL/SDA back-feeds its ESD diodes. Sleep floats both
+ * pins (no internal pull-up, no frozen AF drive); resume restores the AF
+ * open-drain setup. The board 3.3k pull-ups to 3V3 remain connected either
+ * way — that residual path is a hardware question. */
+void hal_i2c_pins_sleep(void);
+void hal_i2c_pins_resume(void);
+
 #endif /* HAL_I2C_H */

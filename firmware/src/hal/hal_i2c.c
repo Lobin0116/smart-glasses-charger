@@ -232,3 +232,20 @@ int hal_i2c_read_reg(uint8_t addr7, uint8_t reg, uint8_t *buf, uint16_t len)
     i2c_ack_config(I2C0, I2C_ACK_ENABLE);
     return 0;
 }
+
+void hal_i2c_pins_sleep(void)
+{
+    /* High-Z both bus pins: internal pull-up off, AF drive released. The
+     * frozen open-drain state cannot drive high, but the internal pull-up
+     * (GPIO_PUPD_PULLUP from init) holds the lines into the dead IP5353. */
+    gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
+}
+
+void hal_i2c_pins_resume(void)
+{
+    /* Same pin setup as hal_i2c_init/bus_recover restore: AF1 open-drain with
+     * the internal pull-up. Peripheral registers survive Deep-Sleep. */
+    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_10MHZ, GPIO_PIN_6 | GPIO_PIN_7);
+    gpio_af_set(GPIOB, GPIO_AF_1, GPIO_PIN_6 | GPIO_PIN_7);
+}
