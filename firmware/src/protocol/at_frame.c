@@ -9,23 +9,13 @@
 #include "hal_wwdgt.h"
 #endif
 
-#define AT_FRAME_OFFSET_CRC     4U
-#define AT_FRAME_OFFSET_SIZE    5U
-#define AT_FRAME_OFFSET_OPCODE  7U
-#define AT_FRAME_OFFSET_STATUS  9U
+#define AT_FRAME_OFFSET_CRC 4U
+#define AT_FRAME_OFFSET_SIZE 5U
+#define AT_FRAME_OFFSET_OPCODE 7U
+#define AT_FRAME_OFFSET_STATUS 9U
 #define AT_FRAME_OFFSET_PAYLOAD 10U
 
-#define AT_FRAME_CRC_INIT       0x00U
-
-/* Diagnostic: last failure detail, exposed via HIL STATUS.
- *   last_fail_stage: 0=none/Success, 1=stage1 timeout (buffer empty), 2=stage2
- *                   timeout (header incomplete), 3=magic fail, 4=size fail,
- *                   5=opcode mismatch, 6=stage6 timeout (payload gap).
- *   last_buf_bytes: rx_buf bytes available (head - tail) at the moment of fail.
- *                   stage=1 + buf=0 => PC byte never reached rx_buf (USB-TTL
- *                   jitter or USART/DMA stalled). stage=1 + buf>0 => buffer
- *                   has non-magic bytes (noise/garbage). stage=2/6 + buf>0 =>
- *                   partial frame (PC RSP split across USB frames). */
+#define AT_FRAME_CRC_INIT 0x00U
 volatile uint8_t at_frame_last_fail_stage = 0U;
 volatile uint16_t at_frame_last_buf_bytes = 0U;
 
@@ -50,10 +40,6 @@ static uint32_t at_frame_get_le32(const uint8_t *p)
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-/* CRC8 covers ONLY the bytes after the CRC byte (Size..last payload byte) —
- * the magic is NOT included. Verified against real-glasses captures: both a
- * HEART RSP (wire CRC 0x25) and a CRC-error RSP (0x52) match this span, while
- * the previous magic-inclusive span never matched a glasses frame. */
 static uint8_t at_frame_crc(const uint8_t *buf, uint16_t total_len)
 {
     return at_crc8((uint8_t *)buf + AT_FRAME_OFFSET_CRC + 1U,
@@ -66,7 +52,7 @@ static uint16_t at_frame_pack(
     uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + payload_len);
 
     at_frame_put_le32(buf, magic);
-    /* Size carries the PAYLOAD length only — wire frame is Size + header. */
+
     at_frame_put_le16(buf + AT_FRAME_OFFSET_SIZE, payload_len);
     at_frame_put_le16(buf + AT_FRAME_OFFSET_OPCODE, opcode);
     buf[AT_FRAME_OFFSET_STATUS] = status;
@@ -136,13 +122,10 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     uint32_t start = hal_timer_get_ms();
     uint8_t c;
 
-    /* Skip bytes until the magic lead '#' (0x23) — but don't consume it yet.
-     * We peek so that if expected_opcode doesn't match, the whole frame stays
-     * in the buffer for another consumer. */
     while (true) {
 #ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();  /* UART wait can outlast WWDGT 20ms window when host
-                            * is slow (pyserial async write); feed every iter. */
+        hal_wwdgt_feed();
+
 #endif
         if (!hal_usart_rx_peek(&c)) {
             if (hal_timer_expired(start, timeout_ms)) {
@@ -155,10 +138,9 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         if (c == 0x23U) {
             break;
         }
-        (void)hal_usart_rx_get(&c); /* drop non-magic byte */
+        (void)hal_usart_rx_get(&c);
     }
 
-    /* Wait for the full 10-byte header to arrive, peeking without consuming. */
     uint8_t header[AT_FRAME_HEADER_SIZE];
     while (true) {
 #ifndef BL_NO_WWDGT
@@ -170,18 +152,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         if (hal_timer_expired(start, timeout_ms)) {
             at_frame_last_fail_stage = 2U;
             at_frame_last_buf_bytes = hal_usart_rx_avail();
-            /* Torn frame: magic arrived but header never completed. Drop
-             * everything so the next retry starts from a clean buffer instead
-             * of hunting for magic in a half-filled one. */
+
             hal_usart_rx_clear();
             return 0U;
         }
     }
 
-    /* Verify magic. */
     uint32_t magic = at_frame_get_le32(header);
     if (magic != AT_FRAME_MAGIC_REQ && magic != AT_FRAME_MAGIC_RSP) {
-        /* Bogus lead byte — consume it so the next call re-hunts. */
+
         (void)hal_usart_rx_get(&c);
         at_frame_last_fail_stage = 3U;
         at_frame_last_buf_bytes = hal_usart_rx_avail();
@@ -189,8 +168,6 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         return 0U;
     }
 
-    /* Parse size + opcode. Size is the payload length; the frame occupies
-     * size + header bytes on the wire. */
     uint16_t size = at_frame_get_le16(header + AT_FRAME_OFFSET_SIZE);
     uint16_t opcode = at_frame_get_le16(header + AT_FRAME_OFFSET_OPCODE);
     uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + size);
@@ -202,16 +179,11 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         return 0U;
     }
 
-    /* Opcode filter: leave the whole frame in the buffer if it's not what the
-     * caller wants, so e.g. charge_poll waiting on a heartbeat response does
-     * not swallow an unrelated HIL command frame. */
     if (expected_opcode != 0U && opcode != expected_opcode) {
-        /* Don't record as fail — this is the intentional "leave frame for other
-         * consumer" path, not an error. Buffer is NOT cleared. */
+
         return 0U;
     }
 
-    /* Consume the frame: drain the header we already peeked, then the payload. */
     for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
         (void)hal_usart_rx_get(&buf[i]);
     }
@@ -226,23 +198,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         } else if (hal_timer_expired(start, timeout_ms)) {
             at_frame_last_fail_stage = 6U;
             at_frame_last_buf_bytes = hal_usart_rx_avail();
-            /* Payload stalled mid-frame. Drop everything so retry starts clean. */
+
             hal_usart_rx_clear();
             return 0U;
         }
     }
 
-    /* Success: clear fail stage so a subsequent STATUS read after a good frame
-     * doesn't report stale failure info. */
     at_frame_last_fail_stage = 0U;
     at_frame_last_buf_bytes = 0U;
 
-    /* Successfully consumed a complete frame matching expected_opcode.
-     * Per request-response protocol, one REQ maps to one RSP — anything
-     * still in the buffer is stale (host sent extra RSPs without a REQ,
-     * which violates protocol). Drop them so subsequent REQ retries or
-     * HIL commands don't get blocked behind stale data. Production-safe
-     * because the glasses (per protocol) only sends one RSP per REQ. */
     hal_usart_rx_clear();
     return n;
 }

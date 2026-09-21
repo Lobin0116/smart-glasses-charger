@@ -11,7 +11,7 @@ static uint8_t btn_case_soc;
 
 void button_set_case_soc(uint8_t soc) { btn_case_soc = soc; }
 
-#define DEBOUNCE_MS    50U
+#define DEBOUNCE_MS 50U
 #define SHORT_PRESS_MS 2000U
 
 typedef enum

@@ -19,8 +19,6 @@
 
 extern sm_ctx_t sm;
 
-/* OTA debug counters, defined in ota_flow.c. Mirrored in HIL_STATUS so the PC
- * can diagnose failed transfers without a separate ASCII channel. */
 extern volatile uint16_t ota_dbg_last_rx_len;
 extern volatile uint16_t ota_dbg_last_index;
 extern volatile uint16_t ota_dbg_parse_fails;
@@ -29,7 +27,6 @@ extern volatile uint16_t ota_dbg_last_success_rx_len;
 extern volatile uint8_t at_frame_last_fail_stage;
 extern volatile uint16_t at_frame_last_buf_bytes;
 
-/* Send a HIL ACK frame: response magic + echoed opcode + status + payload. */
 static void send_hil_ack(uint16_t opcode, at_status status, const uint8_t *payload, uint8_t payload_len)
 {
     uint8_t buf[80];
@@ -39,11 +36,7 @@ static void send_hil_ack(uint16_t opcode, at_status status, const uint8_t *paylo
 
 static void handle_hil_reset(void)
 {
-    /* Flush any stale frames (heartbeat responses, partial HIL commands) from
-     * the RX ring buffer before clearing state. Otherwise update_mode_poll's
-     * next iteration peeks the leading production-protocol frame and breaks
-     * (per the opcode filter), leaving RESET's sibling commands (OPEN/CLOSE/
-     * KEY/OTA) stuck behind it in the buffer. */
+
     hal_usart_rx_clear();
     sm.state = ST_IDLE;
     sm.retry_count = 0U;
@@ -53,14 +46,13 @@ static void handle_hil_reset(void)
     sm.ota_requested = false;
     sm.reported_case_version = 0U;
     sm.lid_open = false;
-    hal_hall_set_mock(false); /* test PC starts with lid closed */
+    hal_hall_set_mock(false);
     send_hil_ack(AT_OPCODE_HIL_RESET, AT_SUCCESS, NULL, 0U);
 }
 
 static void handle_hil_open(void)
 {
-    /* sm_tick polls hal_hall_get() at the top of each call; setting the mock
-     * is enough — the next tick picks up the change and runs the open path. */
+
     hal_hall_set_mock(true);
     send_hil_ack(AT_OPCODE_HIL_OPEN, AT_SUCCESS, NULL, 0U);
 }
@@ -83,8 +75,6 @@ static void handle_hil_ota(void)
     send_hil_ack(AT_OPCODE_HIL_OTA, AT_SUCCESS, NULL, 0U);
 }
 
-    /* HIL_STATUS payload (packed, big-endian u16 fields) — 20 bytes.
-     * PC unpacks with struct.unpack in sgc_at.py. */
     #pragma pack(push, 1)
 typedef struct
 {
@@ -105,7 +95,7 @@ typedef struct
     uint8_t ota_fail_reason;
     uint8_t ota_succ_hi;
     uint8_t ota_succ_lo;
-    uint8_t at_frame_fail_stage;  /* 0=none, 1=stage1 timeout (buffer empty), 2=stage2 timeout (header incomplete), 3=magic fail, 4=size fail, 5=opcode mismatch, 6=stage6 timeout (payload gap) */
+    uint8_t at_frame_fail_stage;
     uint8_t at_frame_buf_bytes_hi;
     uint8_t at_frame_buf_bytes_lo;
 } hil_status_payload_t;
@@ -155,16 +145,6 @@ static void handle_hil_scan(void)
     }
     send_hil_ack(AT_OPCODE_HIL_SCAN, AT_SUCCESS, addrs, n);
 }
-
-/* Wireless-charge bring-up diagnosis. Registers mirror the drivers:
- * IP5353 status addr 0x75 (SYS_STATE0 0x45 / SYS_STATE2 0x50 / SYS_STATE5
- * 0x69, see ip5353.h), CW2017 addr 0x63 (VCELL 0x02-03 / SOC 0x04 /
- * VERSION 0x00 / CONFIG 0x08, see cw2017.c). All reads are RAW
- * (hal_i2c_read_reg) — deliberately bypassing ip5353_ensure_ready's 100 ms
- * INT-settle wait and the driver bitfield decoding, so the PC sees exactly
- * what is on the bus at poll time, including failures (ok bits = 0 and
- * data bytes latched to 0xFF). Used to diff a case that fails to start
- * wireless charging against one that works. */
 static void handle_hil_chg_diag(void)
 {
     uint8_t ip_state0 = 0xFFU, ip_state2 = 0xFFU, ip_state5 = 0xFFU;
@@ -201,20 +181,20 @@ static void handle_hil_chg_diag(void)
 
     uint8_t flags = 0U;
     if (hal_charger_int_get()) {
-        flags |= 0x01U; /* PB2 CHAGER_INT level */
+        flags |= 0x01U;
     }
     if (hal_nint_get()) {
-        flags |= 0x02U; /* PA7 NU1671 nINT level (high = idle) */
+        flags |= 0x02U;
     }
     if (hal_power_gate_is_on(HAL_POWER_GATE_POGO3V3)) {
-        flags |= 0x04U; /* PB11 POGO3V3 gate state (on = pad low) */
+        flags |= 0x04U;
     }
     if (!hal_pdetb_get()) {
-        flags |= 0x08U; /* PB0 PDETB asserted = wireless TX pad present */
+        flags |= 0x08U;
     }
     nu1671_probe();
     if (nu1671_is_present()) {
-        flags |= 0x10U; /* NU1671 ACKed at 0x34 = powered by a coil field */
+        flags |= 0x10U;
     }
 
     uint8_t p[11] = {0U};
@@ -228,7 +208,7 @@ static void handle_hil_chg_diag(void)
     p[7] = cw_soc;
     p[8] = cw_ver;
     p[9] = cw_cfg;
-    p[10] = ip_ntc; /* IP5353 NTC_STATE (0x6F) raw — temperature protection flags */
+    p[10] = ip_ntc;
     send_hil_ack(AT_OPCODE_HIL_CHG_DIAG, AT_SUCCESS, p, (uint8_t)sizeof(p));
 }
 
@@ -237,42 +217,35 @@ void update_mode_poll(void)
     while (true) {
         uint8_t lead;
         if (!hal_usart_rx_peek(&lead)) {
-            break; /* ring buffer empty */
+            break;
         }
 
         if (lead != 0x23U) {
-            /* Non-magic byte — drop (garbage / mis-aligned residue). */
+
             uint8_t tmp;
             (void)hal_usart_rx_get(&tmp);
             continue;
         }
 
-        /* Peek the 10-byte header without consuming. */
         uint8_t header[AT_FRAME_HEADER_SIZE];
         uint8_t frame_buf[64];
         if (!hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
-            break; /* header not fully arrived yet; wait for next poll */
+            break;
         }
 
         uint16_t opcode = (uint16_t)((uint16_t)header[7] | ((uint16_t)header[8] << 8));
 
-        /* Production protocol frames are left in the buffer for charge_poll /
-         * ota_flow to consume via at_frame_recv. update_mode_poll must NOT
-         * touch them — that was the root cause of the "charge_poll eats HIL
-         * commands" bug. */
         if (opcode == AT_OPCODE_CASE_HEART || opcode == AT_OPCODE_CASE_SHUTDOWN
             || opcode == AT_OPCODE_CASE_PACKET_PREPARE || opcode == AT_OPCODE_CASE_PACKET_READ) {
             break;
         }
 
-        /* Only HIL opcodes are ours. Anything else: drop the lead byte. */
         if (opcode < AT_OPCODE_HIL_RESET || opcode > AT_OPCODE_HIL_CHG_DIAG) {
             uint8_t tmp;
             (void)hal_usart_rx_get(&tmp);
             continue;
         }
 
-        /* Size is the payload length (LE); the frame occupies size + header. */
         uint16_t size = (uint16_t)((uint16_t)header[5] | ((uint16_t)header[6] << 8));
         uint16_t total_len = (uint16_t)(AT_FRAME_HEADER_SIZE + size);
         if (total_len > (uint16_t)sizeof(frame_buf)) {
@@ -281,12 +254,10 @@ void update_mode_poll(void)
             continue;
         }
 
-        /* Wait for the full frame to arrive, then consume it. Header already
-         * in the buffer; payload follows within size × 87us at 115200. */
         uint32_t wait_start = hal_timer_get_ms();
         while (!hal_usart_rx_peek_n(frame_buf, total_len)) {
             if (hal_timer_expired(wait_start, 50U)) {
-                /* Timeout — drop what we have and let the caller retry. */
+
                 uint8_t tmp;
                 (void)hal_usart_rx_get(&tmp);
                 goto next;

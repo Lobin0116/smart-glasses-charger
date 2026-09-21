@@ -2,23 +2,18 @@
 
 #include "gd32e23x.h"
 
-/* EXTI sources on this board. Each entry wires one GPIO pad to its EXTI line
- * and selects the trigger edge; the same table feeds both init and dispatch. */
 typedef struct
 {
-    uint8_t port;             /* EXTI_SOURCE_GPIOx for SYSCFG routing */
-    uint8_t pin;              /* EXTI_SOURCE_PINx for SYSCFG routing  */
-    uint8_t line;             /* EXTI line number 0..15 (callback arg) */
-    exti_trig_type_enum trig; /* trigger edge(s) */
+    uint8_t port;
+    uint8_t pin;
+    uint8_t line;
+    exti_trig_type_enum trig;
 } hal_exti_src_t;
 
 static const hal_exti_src_t exti_sources[] = {
-    /* CHARGER_INT (IP5353 INT via R49, PB2): the pin is high-Z in standby and
-     * driven HIGH when IP5353 is working (board R8 pulls standby low). USB
-     * plug produces a rising edge and unplug a falling edge; BOTH wake the
-     * main loop so refresh_case_status sees the new input_valid state. */
+
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN2, HAL_EXTI_LINE_CHARGER_INT, EXTI_TRIG_BOTH},
-    /* nINT (NU1671, PA7): open-drain, active low on status change. */
+
     {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN7, HAL_EXTI_LINE_NINT, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOA, EXTI_SOURCE_PIN8, HAL_EXTI_LINE_BAT_INT, EXTI_TRIG_FALLING},
     {EXTI_SOURCE_GPIOB, EXTI_SOURCE_PIN3, HAL_EXTI_LINE_KEY, EXTI_TRIG_FALLING},
@@ -27,8 +22,6 @@ static const hal_exti_src_t exti_sources[] = {
 
 #define HAL_EXTI_SRC_COUNT (sizeof(exti_sources) / sizeof(exti_sources[0]))
 
-/* GD32E230 implements 2 priority bits (levels 0..3). All EXTI sources share one
- * level so they stay mutually cooperative. */
 #define HAL_EXTI_IRQ_PRIORITY 2U
 
 static hal_exti_callback_t exti_callback;
@@ -37,7 +30,7 @@ static exti_line_enum hal_exti_mask(uint8_t line) { return (exti_line_enum)BIT(l
 
 void hal_exti_init(void)
 {
-    /* SYSCFG gates the registers that route GPIO pads onto EXTI lines. */
+
     rcu_periph_clock_enable(RCU_CFGCMP);
 
     for (uint32_t i = 0; i < HAL_EXTI_SRC_COUNT; i++) {
@@ -46,22 +39,16 @@ void hal_exti_init(void)
 
         syscfg_exti_line_config(src->port, src->pin);
         exti_init(mask, EXTI_INTERRUPT, src->trig);
-        /* Drop any edge latched before the line was armed. */
+
         exti_interrupt_flag_clear(mask);
     }
 
-    /* Enable the NVIC vectors that cover the configured lines: lines 2 and 3
-     * (CHAGER_INT, KEY) land in EXTI2_3 and lines 4/7/8 (HALL, nINT, BAT_INT)
-     * in EXTI4_15. No board pin uses EXTI line 0 or 1, so EXTI0_1 keeps its
-     * default handler. */
     nvic_irq_enable(EXTI2_3_IRQn, HAL_EXTI_IRQ_PRIORITY);
     nvic_irq_enable(EXTI4_15_IRQn, HAL_EXTI_IRQ_PRIORITY);
 }
 
 void hal_exti_register_callback(hal_exti_callback_t cb) { exti_callback = cb; }
 
-/* Serve one EXTI line from inside an ISR: clear the pending flag if the edge
- * fired and forward the line number to the registered callback. */
 static void hal_exti_dispatch(uint8_t line)
 {
     exti_line_enum mask = hal_exti_mask(line);

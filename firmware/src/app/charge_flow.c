@@ -81,15 +81,6 @@ bool sm_do_handshake(sm_ctx_t *ctx)
     if (!ok) {
         ctx->glass_present = false;
     }
-
-    /* Re-route POGO back to the 5V charge side once the heartbeat burst is
-     * done. CONTEXT.md line 119 says CHARGING "供5V，周期通信" — the POGO
-     * pin must spend most of its time on the 5V rail actually charging the
-     * glass, only flipping to UART for the brief heartbeat window. Without
-     * this restore the previous code left ET3328 stuck on the UART side
-     * after handshake, so no 5V ever reached the glass between polls. The
-     * same restore runs on failure so the next handshake attempt starts
-     * from the charge state. */
     hal_pwr_enter_charge();
     return ok;
 }
@@ -107,22 +98,17 @@ bool sm_do_charge_poll(sm_ctx_t *ctx)
         ok = true;
     }
 
-    /* Flip POGO back to the 5V rail after the heartbeat so the glass
-     * actually charges for the next ~30 s until the next poll. */
     hal_pwr_enter_charge();
     return ok;
 }
 
 bool sm_do_maintain_heartbeat(sm_ctx_t *ctx)
 {
-    /* MAINTAINING is "low case_soc, don't charge, just keep glass alive
-     * with heartbeats". The handshake that admitted us left POGO on the
-     * charge rail, so we must flip to UART for the heartbeat itself. */
+
     hal_pwr_enter_comm();
     at_glass_data reply;
     bool ok = sm_send_heartbeat(ctx, &reply);
-    /* MAINTAINING does not charge — leave POGO parked on the charge rail
-     * but rely on IP5353 / SOC-threshold gating to keep 5V off the glass. */
+
     hal_pwr_enter_charge();
     return ok;
 }
@@ -143,8 +129,6 @@ bool sm_do_force_charge_probe(sm_ctx_t *ctx)
         ok = true;
     }
 
-    /* FORCE_CHARGING's whole point is "long 5V supply" — restore the rail
-     * after the probe so the glass keeps receiving 5V between probes. */
     hal_pwr_enter_charge();
     return ok;
 }

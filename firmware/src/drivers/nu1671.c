@@ -5,12 +5,8 @@
 #include "hal_gpio.h"
 #include "hal_i2c.h"
 
-/* Set from ISR context on an nINT falling edge; read/cleared by the main
- * loop. Unlike the V1 mt5706 latch, every consumer path clears it. */
 static volatile bool event_pending;
 
-/* Cache of the last bus probe. The chip only ACKs while a coil field powers
- * it, so this doubles as "case is on a wireless pad". */
 static bool present;
 
 void nu1671_on_interrupt(void) { event_pending = true; }

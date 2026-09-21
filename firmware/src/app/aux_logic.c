@@ -4,8 +4,6 @@
 #include "hal_gpio.h"
 #include "led.h"
 
-/* --- Task 25: NTC temperature protection --- */
-
 ntc_zone_t ntc_get_zone(int8_t temp_c)
 {
     if (temp_c < 0) {
@@ -27,11 +25,6 @@ bool ntc_should_reduce_charge(ntc_zone_t zone) { return zone == NTC_COLD || zone
 
 bool ntc_should_stop_charge(ntc_zone_t zone) { return zone == NTC_CRITICAL; }
 
-/* Wired/wireless arbitration (old Task 26) was deleted with the V1 board —
- * see aux_logic.h for the V2 rationale. */
-
-/* --- Task 27: Recharge logic --- */
-
 bool recharge_check(uint8_t glass_soc, bool glass_full)
 {
     if (glass_full) {
@@ -39,8 +32,6 @@ bool recharge_check(uint8_t glass_soc, bool glass_full)
     }
     return glass_soc < RECHARGE_THRESHOLD;
 }
-
-/* --- Task 28+30: Lid event helpers --- */
 
 bool lid_check_glass_present(sm_ctx_t *ctx) { return ctx->glass_present; }
 

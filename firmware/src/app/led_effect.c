@@ -27,7 +27,7 @@ static void apply_effect(led_effect_id_t effect, uint8_t soc)
             led_set(LED_WHITE, LED_ON);
             break;
         case LED_EFFECT_BATTERY_DISPLAY:
-            /* REQ §3 "电量查看": 1%<SOC≤5% 红闪 7s, >5% 对应颜色长亮 7s. */
+
             led_set(soc_to_color(soc), (soc <= 5U) ? LED_BLINK : LED_ON);
             break;
         default:

@@ -6,13 +6,9 @@
 #include "hal_timer.h"
 #include "hal_usart.h"
 
-#define HAL_USART_BAUDRATE    115200U
-#define HAL_USART_RX_DMA_CH   DMA_CH2
-/* 512 B fits two OTA RSPs (255 B each) with margin. At 256 B a single retry
- * (PC re-sends the RSP before firmware consumed the first) wraps the ring and
- * corrupts both frames — that was the snowball that made 100 ms timeout
- * unstable on the HIL bed. Production traffic never fills this (glasses send
- * exactly one RSP per REQ), the extra 256 B is HIL headroom. */
+#define HAL_USART_BAUDRATE 115200U
+#define HAL_USART_RX_DMA_CH DMA_CH2
+
 #define HAL_USART_RX_BUF_SIZE 512U
 
 static volatile uint8_t rx_buf[HAL_USART_RX_BUF_SIZE];
@@ -53,9 +49,6 @@ void hal_usart_init(void)
 
     usart_enable(USART0);
 
-    /* Flush any bytes the DMA may have picked up between dma_channel_enable
-     * and usart_enable (e.g. noise during rail settling) so the first
-     * hal_usart_rx_get caller does not see garbage. */
     hal_usart_rx_clear();
 
     hal_tr_switch_set(false);

@@ -6,19 +6,11 @@
 #include "hal_i2c.h"
 #include "hal_timer.h"
 
-/* INT must rest high this long before the IP5353 honours I2C, per the operating
- * constraint in CONTEXT.md. */
 #define IP5353_INT_SETTLE_MS 100U
 
-/* Tick at which INT was first observed high in the current high period. Reset to
- * 0 whenever INT reads low, so the full settle window re-runs after a drop. The
- * separate int_armed flag keeps tick 0 from being mistaken for "not yet seen". */
 static bool int_armed;
 static uint32_t int_high_since;
 
-/* Block until INT has been high for the full settle window, or report the chip
- * as unreachable when INT is low. Within one sustained high period the delay
- * shrinks to the remaining time, so a burst of reads only pays the 100ms once. */
 static bool ip5353_ensure_ready(void)
 {
     if (!hal_charger_int_get()) {
@@ -36,7 +28,6 @@ static bool ip5353_ensure_ready(void)
     return true;
 }
 
-/* Read one register byte, gated by the INT settle window. */
 static int ip5353_read_byte(uint8_t addr7, uint8_t reg, uint8_t *out)
 {
     if (!ip5353_ensure_ready()) {
@@ -45,7 +36,6 @@ static int ip5353_read_byte(uint8_t addr7, uint8_t reg, uint8_t *out)
     return hal_i2c_read_reg(addr7, reg, out, 1U);
 }
 
-/* Write one register byte, gated by the INT settle window. */
 static int ip5353_write_byte(uint8_t addr7, uint8_t reg, uint8_t val)
 {
     if (!ip5353_ensure_ready()) {
@@ -63,8 +53,7 @@ int ip5353_read_sys_state0(ip5353_sys_state0_t *state)
     if (ip5353_read_byte(IP5353_ADDR_STATUS, IP5353_REG_SYS_STATE0, &raw) != 0) {
         return -1;
     }
-    /* Overlay the raw byte onto the bitfield struct. arm-none-eabi-gcc packs
-     * bit fields LSB-first, matching the IP5353's little-endian register map. */
+
     union
     {
         uint8_t raw;

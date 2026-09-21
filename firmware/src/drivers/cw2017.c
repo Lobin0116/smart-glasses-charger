@@ -5,38 +5,19 @@
 #include "hal_i2c.h"
 #include "hal_timer.h"
 
-/* 7-bit I2C address, latched on the bus by hal_i2c. */
 #define CW2017_I2C_ADDR 0x63U
 
-/* Register map (see CONTEXT.md + Cellwise CW2017 Driver V1.4.1). */
-#define CW2017_REG_VCELL_H   0x02U
-#define CW2017_REG_SOC_H     0x04U
-#define CW2017_REG_TEMP      0x06U
-#define CW2017_REG_CONFIG    0x08U  /* MODE_CONFIG */
+#define CW2017_REG_VCELL_H 0x02U
+#define CW2017_REG_SOC_H 0x04U
+#define CW2017_REG_TEMP 0x06U
+#define CW2017_REG_CONFIG 0x08U
 #define CW2017_REG_SOC_ALERT 0x0BU
-#define CW2017_REG_BATINFO   0x10U  /* 80-byte battery profile starts here */
+#define CW2017_REG_BATINFO 0x10U
 
-/* CONFIG power-up sequence: 0x30 kicks the gauge out of sleep and starts a
- * quick-start of the SOC engine, then 0x00 clears the trigger so it settles back
- * into normal measurement. */
 #define CW2017_CONFIG_QUICKSTART 0x30U
-#define CW2017_CONFIG_NORMAL     0x00U
+#define CW2017_CONFIG_NORMAL 0x00U
 
-/* SOC_ALERT bit7: set by host after writing a new battery profile so the gauge
- * re-evaluates SOC with the updated config (Cellwise demo: CONFIG_UPDATE_FLG). */
 #define CW2017_SOC_ALERT_UPDATE_FLAG 0x80U
-
-/* Battery profile (80 bytes) — copied from the Cellwise CW2017 Driver V1.4.1
- * demo default, which encodes a 4.2V/2000mAh OCV-SOC curve.
- *
- * ⚠ UNVERIFIED ASSUMPTION: the product spec (docs/spec/product_requirement_
- * v0.1.xlsx) only says "Li-ion 2000mAh 2C" and does NOT define the charge
- * termination voltage. This profile was adopted as a placeholder, not from
- * battery-vendor data. If the actual cell is a 4.35V system (or any curve
- * differing from this demo table), SOC% will be wrong — replace this array
- * with the vendor profile and verify full-charge open-circuit voltage
- * (4.2V system rests ~4.16-4.20V, 4.35V system ~4.30-4.35V). Used by
- * cw2017_init to auto-burn on first boot / re-burn if the chip lost config. */
 #define CW2017_PROFILE_SIZE 80U
 static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
     0x5A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -51,13 +32,8 @@ static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22,
 };
 
-/* SOC register: the high byte at 0x04 is the integer percentage; the low byte's
- * 1/256% fraction is dropped, matching the rest of the firmware's 1% grading. */
 static int cw2017_read_soc(uint8_t *soc) { return hal_i2c_read_reg(CW2017_I2C_ADDR, CW2017_REG_SOC_H, soc, 1U); }
 
-/* VCELL spans 0x02-0x03 as a 14-bit field. The slave auto-increments its
- * register pointer across the two-byte read, so a single transfer from 0x02
- * yields [high, low]. The LSB is 312.5 uV, which is exactly 5/16 mV. */
 static int cw2017_read_voltage_mv(uint16_t *mv)
 {
     uint8_t buf[2];
@@ -70,7 +46,6 @@ static int cw2017_read_voltage_mv(uint16_t *mv)
     return 0;
 }
 
-/* TEMP is one byte at 0x06 with 0.5C resolution and a -40C offset. */
 static int cw2017_read_temp_c(int8_t *temp)
 {
     uint8_t raw;
@@ -81,9 +56,6 @@ static int cw2017_read_temp_c(int8_t *temp)
     return 0;
 }
 
-/* Write the 80-byte battery profile (0x10..0x5F) and set the UPDATE_FLAG in
- * SOC_ALERT so the gauge reloads it. Returns 0 on success. Layout and sequence
- * from Cellwise demo `cw_update_config_info()`. */
 static int cw2017_burn_profile(void)
 {
     for (uint8_t i = 0U; i < CW2017_PROFILE_SIZE; i++) {
@@ -99,8 +71,7 @@ static int cw2017_burn_profile(void)
     if (hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_SOC_ALERT, &alert, 1U) != 0) {
         return -1;
     }
-    /* Re-arm the gauge: NORMAL mode lets it re-evaluate SOC against the new
-     * profile. */
+
     uint8_t mode = CW2017_CONFIG_NORMAL;
     if (hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &mode, 1U) != 0) {
         return -1;
@@ -108,8 +79,6 @@ static int cw2017_burn_profile(void)
     return 0;
 }
 
-/* Read back the 80-byte profile and compare. Returns true if it matches the
- * stored profile word-for-word. Used to skip re-burning on every boot. */
 static bool cw2017_verify_profile(void)
 {
     for (uint8_t i = 0U; i < CW2017_PROFILE_SIZE; i++) {
@@ -126,11 +95,7 @@ static bool cw2017_verify_profile(void)
 
 int cw2017_init(void)
 {
-    /* Auto-burn check (Cellwise demo `cw_init`):
-     *  - First boot or after profile loss: MODE != NORMAL or UPDATE_FLAG clear.
-     *  - Otherwise read back the profile and re-burn if it drifted.
-     * Skipping this when the chip already has a good profile costs ~80 I2C
-     * reads (~10 ms); burning costs ~250 ms but only happens once per chip. */
+
     uint8_t mode = 0U;
     uint8_t alert = 0U;
     bool need_burn = true;
@@ -147,7 +112,6 @@ int cw2017_init(void)
         }
     }
 
-    /* Quick-start the SOC engine so it picks up the (possibly new) profile. */
     uint8_t cfg = CW2017_CONFIG_QUICKSTART;
     if (hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U) != 0) {
         return -1;
@@ -163,14 +127,11 @@ uint8_t cw2017_get_soc(void)
 {
     uint8_t soc = 0U;
     if (cw2017_read_soc(&soc) != 0) {
-        /* I2C read failed — battery gauge not responding. Assume full so the
-         * LED falls into the white band rather than stuck on red low-batt
-         * blink. Real fix is a battery profile burned into the CW2017. */
+
         return 100U;
     }
     if (soc == 0U || soc > 100U) {
-        /* Abnormal reading (0 = quickstart transitional or dead battery;
-         * >100 = unprofiled gauge). Same fallback as above. */
+
         return 100U;
     }
     return soc;

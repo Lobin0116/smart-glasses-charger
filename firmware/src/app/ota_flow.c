@@ -13,44 +13,27 @@
 #include "hal_usart.h"
 #include "hal_wwdgt.h"
 
-/* Timing budget from CONTEXT.md "通信超时": the AT request-response cycle is
- * 100 ms. The HIL bed's USB-TTL jitter used to force this down to 30 ms, but
- * the real fix (larger RX buffer + clearing stale data on parse failure) lets
- * us keep the spec value. */
 #define OTA_TIMEOUT_MS 100U
 
-/* Heartbeats sent while waiting for the glasses to agree, spaced one cycle apart
- * so the case keeps holding the glass in-box during the wait. */
 #define OTA_REQUEST_RETRIES 3U
-#define OTA_REQUEST_GAP_MS  100U
+#define OTA_REQUEST_GAP_MS 100U
 
-/* Bounded retries for the prepare and per-block exchanges. */
 #define OTA_EXCHANGE_RETRIES 5U
 
-/* Data bytes pulled per read request. The response carries a 5-byte header
- * (role + index + type) ahead of the data, so 240 keeps the response payload
- * under AT_FRAME_MAX_PAYLOAD with margin. */
 #define OTA_BLOCK_SIZE 240U
 
-/* Hard ceiling on the block count: bounds the loop if the glasses never reports
- * the end marker. Generous enough for a full flash image at the block size above. */
 #define OTA_MAX_BLOCKS 1024U
 
-/* Return codes from ota_run(). */
-#define OTA_OK              0
-#define OTA_ERR_REQUEST     (-1)
-#define OTA_ERR_PREPARE     (-2)
-#define OTA_ERR_READ        (-3)
-#define OTA_ERR_RUNAWAY     (-4)
+#define OTA_OK 0
+#define OTA_ERR_REQUEST (-1)
+#define OTA_ERR_PREPARE (-2)
+#define OTA_ERR_READ (-3)
+#define OTA_ERR_RUNAWAY (-4)
 #define OTA_ERR_FLASH_ERASE (-5)
-#define OTA_ERR_FLASH_PROG  (-6)
-#define OTA_ERR_VERIFY      (-7)
-#define OTA_ERR_META        (-8)
+#define OTA_ERR_FLASH_PROG (-6)
+#define OTA_ERR_VERIFY (-7)
+#define OTA_ERR_META (-8)
 
-/* Firmware verification hook. Protocol (AT_Communication_Protocol.pdf +
- * dual_pin_timing) does not define a checksum field, so verification is
- * reserved but unimplemented — see docs/OTA_UPGRADE_PLAN.md §6. Returns true
- * unconditionally; fill in after the protocol is extended. */
 static bool ota_verify(uint32_t addr, uint32_t size)
 {
     (void)addr;
@@ -58,32 +41,18 @@ static bool ota_verify(uint32_t addr, uint32_t size)
     return true;
 }
 
-/* Whole frames live in static buffers: ota_run() is synchronous and not
- * re-entrant, and keeping these off the stack matters on the 8 KB SRAM part. */
 #define OTA_BUF_SIZE (AT_FRAME_HEADER_SIZE + AT_FRAME_MAX_PAYLOAD)
 static uint8_t ota_tx_buf[OTA_BUF_SIZE];
 static uint8_t ota_rx_buf[OTA_BUF_SIZE];
 static uint8_t ota_payload[AT_FRAME_MAX_PAYLOAD];
 
-/* Tracks whether a transfer is in progress; cleared by ota_init() and on exit. */
 static bool ota_active;
-
-/* Debug counters for OTA exchange diagnostics, exposed via STATUS.
- *   last_rx_len:       hal_usart_recv return value from last ota_read_block call
- *   last_index:        block index that failed/was in progress
- *   parse_fails:       total at_frame_parse failures across all ota_read_block retries
- *   last_fail_reason:  0=none,1=magic,2=size,3=CRC,4=opcode/status,5=index mismatch,6=rx_len==0
- *   last_success_rx_len: rx_len from the last SUCCESSFUL read (tells us actual frame size received)
- * Reset on ota_init(). */
 volatile uint16_t ota_dbg_last_rx_len = 0xFFFFU;
 volatile uint16_t ota_dbg_last_index = 0xFFFFU;
 volatile uint16_t ota_dbg_parse_fails = 0U;
 volatile uint8_t ota_dbg_last_fail_reason = 0U;
 volatile uint16_t ota_dbg_last_success_rx_len = 0xFFFFU;
 
-/* One heartbeat exchange: send a heartbeat carrying the current case status with
- * the OTA flag set or cleared per request_ota, then refresh the glass status from
- * the reply. Returns true on a valid reply and reports the agree flag. */
 static bool ota_heartbeat(sm_ctx_t *ctx, bool request_ota, bool *agreed)
 {
     at_case_data req;
@@ -209,7 +178,7 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
         at_status parse_rc = at_frame_parse(ota_rx_buf, rx_len, &opcode, &status, ota_payload, &plen);
         if (parse_rc != AT_SUCCESS) {
             ota_dbg_parse_fails++;
-            /* Distinguish failure reason: AT_ERR_MAGIC=0xFE, AT_ERR_LENGTH=0x03, AT_ERR_CRC=0x06 */
+
             if (parse_rc == AT_ERR_MAGIC) {
                 ota_dbg_last_fail_reason = 1U;
             } else if (parse_rc == AT_ERR_LENGTH) {
@@ -226,7 +195,7 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
             ota_dbg_last_fail_reason = 4U;
             continue;
         }
-        /* The transfer header is role(2) + index(2) + type(1); data follows. */
+
         if (plen < (uint8_t)offsetof(at_case_packet_transfer, data)) {
             ota_dbg_parse_fails++;
             ota_dbg_last_fail_reason = 4U;
@@ -256,17 +225,11 @@ bool ota_read_block(uint16_t index, uint16_t block_size, uint8_t *data, uint16_t
     return false;
 }
 
-/* Clear the OTA flag on both sides and let the state machine resume. A final
- * heartbeat with the flag cleared tells the glasses to leave OTA mode; the local
- * flag is dropped regardless of whether the glasses answers. */
 static void ota_finish(sm_ctx_t *ctx)
 {
     ota_active = false;
     ctx->ota_requested = false;
-    /* Clear the reported version so sm_tick_charging/maintaining don't
-     * immediately re-trigger OTA via the version-mismatch path and loop
-     * forever after a failed transfer. The next heartbeat that reports a
-     * mismatched version will set it again. */
+
     ctx->reported_case_version = 0U;
     (void)ota_heartbeat(ctx, false, NULL);
 }
@@ -274,40 +237,34 @@ static void ota_finish(sm_ctx_t *ctx)
 int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
 {
     hal_wwdgt_feed();
-    ota_dbg_last_fail_reason = 0U;   /* clear at entry; set on each failure path */
+    ota_dbg_last_fail_reason = 0U;
     if (progress_cb != NULL) {
         progress_cb(0U);
     }
 
     if (!ota_request(ctx)) {
-        ota_dbg_last_fail_reason = 10U;   /* REQUEST */
+        ota_dbg_last_fail_reason = 10U;
         ota_dbg_last_index = 0U;
         ota_finish(ctx);
         return OTA_ERR_REQUEST;
     }
-    /* Drop any extra "agree" RSPs the host sent after ota_request succeeded
-     * (host doesn't know firmware already exited the retry loop). They have
-     * opcode HEART and would block ota_prepare's at_frame_recv filtering on
-     * PREPARE — at_frame_recv leaves non-matching frames in buffer. */
+
     hal_usart_rx_clear();
 
     uint32_t fw_size = 0U;
     if (!ota_prepare(&fw_size)) {
-        ota_dbg_last_fail_reason = 11U;   /* PREPARE */
+        ota_dbg_last_fail_reason = 11U;
         ota_dbg_last_index = 0U;
         ota_finish(ctx);
         return OTA_ERR_PREPARE;
     }
-    /* Same pattern: host may send extra PREPARE RSPs; clear before READ loop. */
+
     hal_usart_rx_clear();
 
-    /* Erase Staging B pages: ceil(fw_size / 1KB), capped at Staging capacity.
-     * Bootloader will copy Staging → App on next reset, leaving the running
-     * App untouched until the new image is fully written. */
     uint32_t staging_pages = BOOT_STAGING_SIZE / HAL_FLASH_PAGE_SIZE;
     uint32_t total_pages = (fw_size + HAL_FLASH_PAGE_SIZE - 1U) / HAL_FLASH_PAGE_SIZE;
     if (total_pages == 0U || total_pages > staging_pages) {
-        ota_dbg_last_fail_reason = 12U;   /* PREPARE size out of range */
+        ota_dbg_last_fail_reason = 12U;
         ota_dbg_last_index = (uint16_t)total_pages;
         ota_finish(ctx);
         return OTA_ERR_PREPARE;
@@ -316,17 +273,13 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     for (uint32_t p = 0U; p < total_pages; p++) {
         if (!hal_flash_page_erase(BOOT_STAGING_BASE + p * HAL_FLASH_PAGE_SIZE)) {
             hal_flash_lock();
-            ota_dbg_last_fail_reason = 13U;   /* FLASH_ERASE */
+            ota_dbg_last_fail_reason = 13U;
             ota_dbg_last_index = (uint16_t)p;
             ota_finish(ctx);
             return OTA_ERR_FLASH_ERASE;
         }
     }
-    /* Keep flash unlocked for the program loop — fmc_word_program needs the
-     * UNLOCK bit set or the program silently no-ops (returns FMC_READY without
-     * writing). Locked again after the last program completes. */
 
-    /* Read every block and program it to Staging B. */
     static uint8_t block[OTA_BLOCK_SIZE];
     uint32_t offset = 0U;
     uint16_t index = 0U;
@@ -334,7 +287,7 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     while (type != AT_PACKET_TYPE_END) {
         if (index >= OTA_MAX_BLOCKS) {
             hal_flash_lock();
-            ota_dbg_last_fail_reason = 17U;   /* RUNAWAY */
+            ota_dbg_last_fail_reason = 17U;
             ota_dbg_last_index = index;
             ota_finish(ctx);
             return OTA_ERR_RUNAWAY;
@@ -342,25 +295,22 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
         uint16_t dlen = 0U;
         if (!ota_read_block(index, OTA_BLOCK_SIZE, block, &dlen, &type)) {
             hal_flash_lock();
-            /* Preserve ota_read_block's ota_dbg_last_fail_reason (1/2/3/4/5/6/9)
-             * — it tells us *why* the read failed (buffer-empty vs CRC vs
-             * index-mismatch). Don't overwrite with a generic "14 = READ"
-             * code, otherwise we lose the diagnostic detail. */
+
             ota_dbg_last_index = index;
             ota_finish(ctx);
             return OTA_ERR_READ;
         }
         if (dlen > 0U) {
-            /* Flash word-program needs 4-byte alignment; pad trailing bytes with 0xFF. */
+
             uint32_t padded = ((uint32_t)dlen + 3U) & ~3U;
             for (uint32_t i = dlen; i < padded; i++) {
                 block[i] = 0xFFU;
             }
             if (!hal_flash_write(BOOT_STAGING_BASE + offset, block, padded)) {
                 hal_flash_lock();
-                ota_dbg_last_fail_reason = 15U;   /* FLASH_PROG */
+                ota_dbg_last_fail_reason = 15U;
                 ota_dbg_last_index = index;
-                ota_dbg_last_rx_len = (uint16_t)(offset + dlen);  /* fail offset */
+                ota_dbg_last_rx_len = (uint16_t)(offset + dlen);
                 ota_finish(ctx);
                 return OTA_ERR_FLASH_PROG;
             }
@@ -378,15 +328,14 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
     hal_flash_lock();
 
     if (!ota_verify(BOOT_STAGING_BASE, offset)) {
-        ota_dbg_last_fail_reason = 16U;   /* VERIFY */
+        ota_dbg_last_fail_reason = 16U;
         ota_dbg_last_index = (uint16_t)(offset / OTA_BLOCK_SIZE);
         ota_finish(ctx);
         return OTA_ERR_VERIFY;
     }
 
-    /* Commit: mark staged so Bootloader copies Staging → App on next reset. */
     if (!hal_bootmeta_set_staged(offset)) {
-        ota_dbg_last_fail_reason = 18U;   /* META */
+        ota_dbg_last_fail_reason = 18U;
         ota_dbg_last_index = (uint16_t)(offset & 0xFFFFU);
         ota_finish(ctx);
         return OTA_ERR_META;
@@ -399,5 +348,5 @@ int ota_run(sm_ctx_t *ctx, ota_progress_cb_t progress_cb)
 
     hal_wwdgt_feed();
     NVIC_SystemReset();
-    return OTA_OK; /* unreachable */
+    return OTA_OK;
 }

@@ -4,8 +4,6 @@
 
 #include "hal_flash.h"
 
-/* Software CRC32 (IEEE 802.3, poly 0xEDB88320, init 0xFFFFFFFF, final XOR).
- * Table-less to stay callable from Bootloader main (no .data dependencies). */
 static uint32_t bootmeta_crc32(const uint8_t *data, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFU;
@@ -41,8 +39,6 @@ static bool meta_validate_at(uint32_t addr, boot_meta_t *out, uint32_t *seq_out)
     return true;
 }
 
-/* Pick the page with the highest valid seq. Returns the meta contents and leaves
- * seq_out untouched if neither page validates. */
 static bool pick_latest(boot_meta_t *out, uint32_t *seq_out)
 {
     boot_meta_t m0, m1;
@@ -127,8 +123,6 @@ static bool write_meta_at(uint32_t target_addr, uint32_t staged, uint32_t fw_siz
     return ok;
 }
 
-/* Pick the older meta slot to overwrite (lower seq, or the invalid one).
- * Returns target address and the next seq to write. */
 static uint32_t next_meta_target(uint32_t *new_seq_out)
 {
     uint32_t s0 = 0U, s1 = 0U;

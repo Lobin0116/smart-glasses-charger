@@ -14,37 +14,30 @@
 #include "ota_flow.h"
 #include "power_mgmt.h"
 
-/* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
-#define SM_HANDSHAKE_5V_PULSE_MS  300U               /* 5V wake pulse length              */
-#define SM_HANDSHAKE_DISCHARGE_MS 100U               /* bus bleed before UART             */
-#define SM_HANDSHAKE_HB_GAP_MS    100U               /* gap between heartbeat retries     */
-#define SM_HANDSHAKE_HB_RETRIES   3U                 /* heartbeat attempts per handshake  */
-#define SM_HANDSHAKE_TIMEOUT_MS   30000U             /* give up window before force charge */
+#define SM_HANDSHAKE_5V_PULSE_MS 300U
+#define SM_HANDSHAKE_DISCHARGE_MS 100U
+#define SM_HANDSHAKE_HB_GAP_MS 100U
+#define SM_HANDSHAKE_HB_RETRIES 3U
+#define SM_HANDSHAKE_TIMEOUT_MS 30000U
 
-#define SM_MAINTAIN_HB_MS         1000U              /* <1.2s keeps the glass present    */
+#define SM_MAINTAIN_HB_MS 1000U
 
-#define SM_CHARGE_POLL_OPEN_MS    30000U             /* heartbeat period, lid open     */
-#define SM_CHARGE_POLL_CLOSED_MS  60000U             /* heartbeat period, lid shut     */
+#define SM_CHARGE_POLL_OPEN_MS 30000U
+#define SM_CHARGE_POLL_CLOSED_MS 60000U
 
-#define SM_FORCE_PROBE_GAP_MS     (3U * 60U * 1000U) /* probe cadence        */
-#define SM_FORCE_TIMEOUT_MS       (9U * 60U * 1000U) /* total force window   */
+#define SM_FORCE_PROBE_GAP_MS (3U * 60U * 1000U)
+#define SM_FORCE_TIMEOUT_MS (9U * 60U * 1000U)
 
-#define SM_SHUTDOWN_GAP_MS        100U               /* AT request/response deadline      */
-#define SM_SHUTDOWN_RETRIES       5U
+#define SM_SHUTDOWN_GAP_MS 100U
+#define SM_SHUTDOWN_RETRIES 5U
 
-#define SM_LOW_SOC_PCT            15U                /* charge vs maintain threshold       */
+#define SM_LOW_SOC_PCT 15U
 
-/* One full handshake attempt covers the 5V pulse, the discharge, and the gaps
- * between retries (the final retry needs no trailing gap). Pacing sm_tick() at
- * this interval keeps attempts from piling up back-to-back. */
-#define SM_HANDSHAKE_ATTEMPT_GAP_MS                                                                                    \
+#define SM_HANDSHAKE_ATTEMPT_GAP_MS \
     (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS + (SM_HANDSHAKE_HB_GAP_MS * (SM_HANDSHAKE_HB_RETRIES - 1U)))
 
-/* Timestamp of the last paced action within the current state. Reset on every
- * transition so each state paces its first action from its own entry. */
 static uint32_t sm_last_action_ms;
 
-/* State to resume when OTA completes. */
 static sm_state_t sm_prev_state;
 
 static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next)
@@ -58,9 +51,6 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next)
     sm_last_action_ms = ctx->state_enter_ms;
 }
 
-/* Hardware actions are implemented in charge_flow.c. */
-
-/* Low-battery path: before sleeping, tell the glasses to shut down. */
 static void sm_goto_idle(sm_ctx_t *ctx)
 {
     if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
@@ -95,8 +85,7 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
 
 static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
 {
-    /* Version mismatch with what the glasses holds → request OTA.
-     * Skip when glasses hasn't reported a version (0) to avoid spurious trigger. */
+
     if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
         ctx->ota_requested = true;
     }
@@ -109,9 +98,6 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
         return;
     }
 
-    /* NTC temperature protection: stop charging on critical, no action on normal.
-     * Uses the 500 ms-cached sample from refresh_case_status — a fresh I2C read
-     * here would run on every main-loop pass while in CHARGING. */
     ntc_zone_t zone = ntc_get_zone(ctx->ntc_temp_c);
     if (ntc_should_stop_charge(zone)) {
         hal_pwr_idle();
@@ -139,7 +125,6 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
         return;
     }
 
-    /* Recharge: if case has enough power and glass dropped below threshold. */
     if (ctx->case_soc > SM_LOW_SOC_PCT && recharge_check(ctx->glass_soc, ctx->glass_full)) {
         sm_enter_state(ctx, ST_CHARGING);
         return;
@@ -157,7 +142,7 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
 
 static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
 {
-    /* After the 9-minute window, give up and go back to sleep. */
+
     if (hal_timer_expired(ctx->state_enter_ms, SM_FORCE_TIMEOUT_MS)) {
         sm_goto_idle(ctx);
         return;
@@ -176,8 +161,7 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
 
 static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now)
 {
-    /* Retry a bounded number of times; no reply is read as "already off" and we
-     * proceed to sleep regardless. */
+
     if (ctx->retry_count >= SM_SHUTDOWN_RETRIES) {
         sm_goto_idle(ctx);
         return;
@@ -237,15 +221,11 @@ void sm_init(sm_ctx_t *ctx)
     ctx->glass_full = false;
     ctx->ota_requested = false;
     ctx->reported_case_version = 0U;
-    ctx->ntc_temp_c = 25; /* benign room value until the first 500 ms refresh */
+    ctx->ntc_temp_c = 25;
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;
-    /* Seed lid_open=false so the first sm_tick samples hal_hall_get() and,
-     * if the lid is open at boot, detects a real false→true transition and
-     * runs the open path (HANDSHAKING + show_battery). If the lid is closed
-     * at boot, hal_hall_get()==false matches ctx->lid_open==false and no
-     * event fires — the machine goes straight to Deep-Sleep as expected. */
+
     ctx->lid_open = false;
     ctx->hall_edge_seen = false;
 }
@@ -253,26 +233,11 @@ void sm_init(sm_ctx_t *ctx)
 void sm_tick(sm_ctx_t *ctx)
 {
     uint32_t now = hal_timer_get_ms();
-
-    /* Poll HALL level and dispatch on change. This runs BEFORE the state-
-     * specific tick (which may block in sm_do_handshake for ~1.1 s), so a
-     * lid transition that arrived during sleep is observed and handled on
-     * the first post-wake sm_tick. No EXTI event queue, no debounce, no
-     * sm_handle_event: the Schmitt-trigger HALL output is a clean level, we
-     * just sample it each tick.
-     *
-     * The level compare alone misses the case where the magnet did a full
-     * close+open round-trip INSIDE one handshake burst — the level ends up
-     * where it started, so `now_open == ctx->lid_open`, but the user very
-     * much actuated the lid. The ISR sets hall_edge_seen on every HALL edge
-     * (it can fire during the handshake block), so we also force the open
-     * path to re-run when an edge was seen, regardless of level delta. */
     bool now_open = hal_hall_get();
     if (ctx->hall_edge_seen || now_open != ctx->lid_open) {
         ctx->hall_edge_seen = false;
         ctx->lid_open = now_open;
-        /* Keep the HALL pad's pull matched to its new level — while awake a
-         * pull-up against the closed lid's low level leaks ~80-100µA too. */
+
         hal_hall_pull_sync();
         if (now_open) {
             if (ctx->state == ST_IDLE) {
@@ -280,12 +245,7 @@ void sm_tick(sm_ctx_t *ctx)
             }
             led_effect_show_battery(&g_led_ctx, ctx->case_soc);
         } else {
-            /* Lid closed: per CONTEXT.md line 163 ("查看电量(开盖/关盖):
-             * 对应颜色长亮7s灭") any close edge shows the battery for 7 s,
-             * regardless of state. The only exception is close-during-charge
-             * with glass present — that switches the heartbeat cadence (30 s
-             * open → 60 s closed) and so must re-handshake instead of
-             * showing the battery. */
+
             if ((ctx->state == ST_CHARGING || ctx->state == ST_MAINTAINING)
                 && ctx->glass_present) {
                 sm_enter_state(ctx, ST_HANDSHAKING);
@@ -300,21 +260,6 @@ void sm_tick(sm_ctx_t *ctx)
 #ifdef HIL_TEST
             break;
 #else
-            /* Stay awake while the LED or button needs active polling — Deep-Sleep
-             * freezes led_poll (software PWM) and the button debounce timer:
-             *  - charging (case or glass) drives a BREATH effect that needs PWM
-             *  - any active overlay (button/lid battery display, 7 s) needs PWM
-             *    and a running timer to expire the overlay
-             *  - FULL_SOLID (case+glass full) needs to stay lit
-             *  - button debounce/held needs the timer to advance and the poll
-             *    to eventually fire led_effect_show_battery on release
-             * The actual pm_enter_deep_sleep() call is in main.c, which can also
-             * gate on exti_pending — without that, a single-edge wake source
-             * like HALL (no switch bounce) gets stuck: the wake fires, the
-             * 20 ms debounce in process_exti_events hasn't elapsed on the first
-             * loop pass, so sm_lid_event_pending stays false, this ST_IDLE
-             * branch sees nothing-to-do and sleeps again before the event is
-             * ever dispatched — the lid event is lost forever. */
             if (g_led_ctx.case_charging
                 || g_led_ctx.glass_charging
                 || g_led_ctx.overlay != LED_EFFECT_NONE
@@ -343,7 +288,7 @@ void sm_tick(sm_ctx_t *ctx)
             sm_tick_ota(ctx, now);
             break;
         case ST_SHIP_MODE:
-            /* Standby; only NRST can wake the part. No polling. */
+
             break;
     }
 }

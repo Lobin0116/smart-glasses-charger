@@ -23,14 +23,9 @@
     #include "update_mode.h"
 #endif
 
-#define SOC_REFRESH_MS   500U   /* IP5353/CW2017 status poll interval.
-                                 * 500 ms balances responsiveness (charge full,
-                                 * NTC trip, USB unplug → sleep all show up
-                                 * within half a second) against I2C traffic
-                                 * (~1 ms per read, negligible vs Deep-Sleep
-                                 * savings). CHAGER_INT EXTI is the primary
-                                 * trigger; this is the safety-net poll. */
-#define EXTI_DEBOUNCE_MS 20U    /* KEY only — HALL is polled by sm_tick. */
+#define SOC_REFRESH_MS 500U
+
+#define EXTI_DEBOUNCE_MS 20U
 
 led_effect_ctx_t g_led_ctx;
 
@@ -40,12 +35,7 @@ sm_ctx_t sm;
 static sm_ctx_t sm;
 #endif
 static uint32_t last_soc_refresh;
-/* KEY still uses an EXTI event queue (the button needs debounce, and the
- * EXTI→button_on_press path was already working). HALL no longer uses this
- * queue — sm_tick polls hal_hall_get() directly at the top of each call. The
- * other EXTI sources (CHARGER/BAT/NINT) only need to wake the main loop so
- * refresh_case_status runs; exti_woken covers that and their pending bits
- * are cleared without any handler. */
+
 static volatile uint8_t exti_pending;
 static volatile uint32_t exti_last_trigger_ms[16];
 static volatile bool exti_woken;
@@ -53,11 +43,7 @@ static volatile bool exti_woken;
 static void exti_callback(uint8_t line)
 {
     if (line < 16U) {
-        /* Only KEY needs the pending-bit + debounce path. HALL is sampled by
-         * sm_tick on every call, so its edges don't need to be queued (and
-         * queuing them caused the "single motion lost, repeated motion seen"
-         * bug, because handshake blocking collapsed multiple edges into one
-         * queue bit). CHARGER/BAT/NINT just need exti_woken. */
+
         if (line == HAL_EXTI_LINE_KEY) {
             uint8_t mask = (uint8_t)(1U << line);
             if ((exti_pending & mask) == 0U) {
@@ -65,13 +51,10 @@ static void exti_callback(uint8_t line)
             }
             exti_pending |= mask;
         } else if (line == HAL_EXTI_LINE_HALL) {
-            /* Tag the edge so sm_tick re-runs the lid path even if the level
-             * ended up where it started (close+open inside one handshake
-             * burst — pure level polling would miss it). */
+
             sm.hall_edge_seen = true;
         } else if (line == HAL_EXTI_LINE_NINT) {
-            /* NU1671 status/fault change; refresh_case_status consumes the
-             * latch and re-probes whether the chip is still on a pad. */
+
             nu1671_on_interrupt();
         }
         exti_woken = true;
@@ -91,8 +74,6 @@ static void process_exti_events(void)
         button_on_press();
     }
 
-    /* CHARGER_INT / BAT_INT / NINT only needed to wake the loop; their
-     * bits (if ever set, which is rare on this board) are dropped here. */
     exti_pending &= (uint8_t)~((1U << HAL_EXTI_LINE_CHARGER_INT)
                                | (1U << HAL_EXTI_LINE_BAT_INT)
                                | (1U << HAL_EXTI_LINE_NINT));
@@ -108,19 +89,12 @@ static void refresh_case_status(void)
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
 
-    /* Boost handover: while the IP5353 actually charges (VIN plugged) it owns
-     * the 5V path — drop the MT3608L so the two never fight and no boost
-     * current is wasted. Reads failing (IP5353 unreachable / protection
-     * mode) report charging=false, keeping the boost on: that is exactly the
-     * battery-only case the boost exists for. */
     if (charging) {
         hal_boost_5v_disable();
     } else {
         hal_boost_5v_enable();
     }
 
-    /* NU1671 nINT edge: consume the latch and re-probe pad presence (the
-     * chip only ACKs while a coil field powers it). */
     (void)nu1671_poll();
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
@@ -147,34 +121,21 @@ int main(void)
     button_init();
     hal_pwr_idle();
 
-    /* The POGO analog-switch supply is gated on V2 (POGO3V3_EN, PMOS held
-     * off by a board pull-up at reset). The ET3328/BL1551B path is needed
-     * whenever the case is awake, so open the gate now; power_mgmt releases
-     * it before Deep-Sleep and this point re-arms it after a reset. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
-    /* Battery rail (Q4 via PC13 fly-wire): on before anything that needs the
-     * IP5353/MT3608L side — CW2017/IP5353 status reads happen right after. */
+
     hal_power_gate_on(HAL_POWER_GATE_BAT);
-    /* MT3608L boost (PB5 fly-wire): the battery→5V path while awake — the
-     * IP5353 cannot re-enable its own 5V after a battery cold attach. */
+
     hal_boost_5v_enable();
-    /* 1V8 LDO on whenever awake (NU1671 I2C shifters + POGO UART path are
-     * fed from it); power_mgmt drops it before Deep-Sleep. */
+
     hal_1v8_enable();
 
-    /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;
 #ifdef HIL_TEST
-    /* HIL tests drive lid state via OPEN/CLOSE commands (hal_hall_set_mock),
-     * so disable the physical HALL EXTI — the test PC will set the level. */
+
     exti_interrupt_disable(EXTI_4);
     exti_interrupt_flag_clear(EXTI_4);
 #endif
 
-    /* CW2017 SOC engine needs settling time after the quickstart triggered in
-     * cw2017_init(); reading it immediately returns a transitional 0, which
-     * would set sm.case_soc=0 and force the low-SOC path (MAINTAINING instead
-     * of CHARGING on next handshake). */
     hal_timer_delay_ms(500);
 
     refresh_case_status();
@@ -183,10 +144,7 @@ int main(void)
     hal_wwdgt_feed();
 
     while (1) {
-        /* EXTI wake-up: re-read charge/SOC state immediately so the state
-         * machine sees the new world before deciding whether to sleep again.
-         * Without this, a USB-plug wake would see the stale pre-sleep
-         * case_charging=false and go right back to Deep-Sleep. */
+
         if (exti_woken) {
             exti_woken = false;
             refresh_case_status();
@@ -195,9 +153,7 @@ int main(void)
         }
         process_exti_events();
 #ifdef HIL_TEST
-        /* update_mode_poll runs before sm_tick so injected commands (OPEN/CLOSE/
-         * KEY/RESET/OTA) are read before sm_do_*_heartbeat consumes RX bytes
-         * looking for a heartbeat response. */
+
         update_mode_poll();
 #endif
         sm_tick(&sm);
@@ -213,19 +169,6 @@ int main(void)
         hal_wwdgt_feed();
 
 #ifndef HIL_TEST
-        /* Gate sleep on exti_pending so a KEY edge that fired this iteration
-         * (20 ms debounce not yet elapsed) is not lost. HALL doesn't need
-         * this gate — sm_tick re-samples hal_hall_get() on every wake.
-         *
-         * Gate on CHARGER_INT level too: while the IP5353 is awake (PB2
-         * pushed high) the case may still be charging or about to resume —
-         * e.g. the input collapsed under a 2A+ load and the adapter will
-         * recover. Sleeping then bricks the UI: on input recovery the INT
-         * pin stays high (no new edge), so nothing would ever wake us —
-         * battery charging with a dark LED. Instead, follow the PMIC: stay
-         * awake while INT is high, and sleep only once the IP5353 itself
-         * goes to standby (INT high-Z, pulled low). Any later standby→work
-         * transition is a rising edge the dual-edge EXTI already latches. */
         if (sm_can_sleep(&sm) && exti_pending == 0U && !hal_charger_int_get()) {
             pm_enter_deep_sleep();
         }

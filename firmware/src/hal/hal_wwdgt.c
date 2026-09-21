@@ -10,7 +10,7 @@ static const uint32_t wwdgt_psc_div[4] = {1U, 2U, 4U, 8U};
 
 #define WWDGT_RESET_VALUE 0x40U
 #define WWDGT_MAX_COUNTER 0x7FU
-#define WWDGT_TICK_DIV    4096U
+#define WWDGT_TICK_DIV 4096U
 
 static uint8_t wwdgt_loaded_counter = WWDGT_MAX_COUNTER;
 static bool wwdgt_armed = false;

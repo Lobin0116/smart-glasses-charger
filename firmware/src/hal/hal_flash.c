@@ -43,7 +43,7 @@ bool hal_flash_write(uint32_t address, const uint8_t *data, uint32_t len)
             __enable_irq();
             return false;
         }
-        /* Feed WWDGT roughly every 1 KB (256 word programs ~ 11 ms). */
+
         if (((i + 4U) & 0x3FFU) == 0U) {
             __enable_irq();
 #ifndef BL_NO_WWDGT
@@ -64,8 +64,7 @@ bool hal_flash_read(uint32_t address, uint8_t *buf, uint32_t len)
     if (buf == NULL) {
         return false;
     }
-    /* Main flash is memory-mapped on the GD32; a plain byte copy is enough.
-     * Caller guarantees address..address+len is within flash. */
+
     memcpy(buf, (const void *)address, len);
     return true;
 }

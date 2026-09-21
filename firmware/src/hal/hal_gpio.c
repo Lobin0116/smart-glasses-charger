@@ -1,8 +1,7 @@
 #include "hal_gpio.h"
 
 #ifdef HIL_TEST
-/* Mock HALL state for HIL tests. Default closed (matches cold-boot with the
- * lid shut — the common starting point for tests). */
+
 static bool hall_mock_open = false;
 
 void hal_hall_set_mock(bool open) { hall_mock_open = open; }
@@ -14,8 +13,6 @@ typedef struct
     uint32_t pin;
 } hal_pin_map_t;
 
-/* Single source of truth that maps a logical pin to its physical port/pin.
- * The macros above each entry are defined in hal_pinmux.h. */
 static const hal_pin_map_t pin_map[HAL_PIN_COUNT] = {
     [HAL_PIN_LED_RED] = {HAL_LED_RED_PORT, HAL_LED_RED_PIN},
     [HAL_PIN_LED_GREEN] = {HAL_LED_GREEN_PORT, HAL_LED_GREEN_PIN},
@@ -44,17 +41,12 @@ static const hal_pin_map_t pin_map[HAL_PIN_COUNT] = {
 
 void hal_gpio_init(void)
 {
-    /* GPIO ports live on the AHB clock domain. */
+
     rcu_periph_clock_enable(RCU_GPIOA);
     rcu_periph_clock_enable(RCU_GPIOB);
     rcu_periph_clock_enable(RCU_GPIOC);
     rcu_periph_clock_enable(RCU_GPIOF);
 
-    /* LEDs: push-pull output, 2MHz, initially high (active-low: low=on).
-     * ODR is written BEFORE the mode switch: flipping CTL to output would
-     * otherwise drive the ODR reset value (0 = LED on) for a short glitch.
-     * The bootloader nails these pins high with the same ordering, so from
-     * BL entry onward they never float or drive low. */
     gpio_bit_set(GPIOB, GPIO_PIN_8 | GPIO_PIN_9);
     gpio_bit_set(GPIOF, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_8 | GPIO_PIN_9);
@@ -62,9 +54,6 @@ void hal_gpio_init(void)
     gpio_mode_set(GPIOF, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOF, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_6 | GPIO_PIN_7);
 
-    /* Control outputs: push-pull, 2MHz, initially low (PDET_EN idles off;
-     * PB5 = MT3608L EN idles off until the awake policy enables it).
-     * 1V8EN/TR/POGO_IN/SHIP_CTR/RPD keep their V1 levels. */
     gpio_mode_set(GPIOB,
                   GPIO_MODE_OUTPUT,
                   GPIO_PUPD_NONE,
@@ -77,48 +66,24 @@ void hal_gpio_init(void)
     gpio_bit_reset(GPIOB,
                    GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_10 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
 
-    /* 5353_KEY (PA15, IP5353 KEY via R48): idles released = high. ODR first,
-     * so the pad can never glitch low and fake a key press. */
     gpio_bit_set(GPIOA, GPIO_PIN_15);
     gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_15);
     gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, GPIO_PIN_15);
 
-    /* Module power gates (PB11 POGO3V3, PC13 BAT via fly-wire): boot with
-     * both rails CUT — pads stay floating inputs so the board pull-ups hold
-     * the PMOSes off. hal_power_gate_on() drives them low when a rail is
-     * needed. PB5 left out: it is the MT3608L EN fly-wire, an ACTIVE-HIGH
-     * push-pull output configured in the control-outputs block below. */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_11);
     gpio_mode_set(GPIOC, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_13);
 
-    /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
 
-    /* BAT_INT (CW2017 ALARM, PA8) and nINT (NU1671, PA7): open-drain outputs
-     * that assert low. Neither has a board pull-up on its 3V3 side, so the
-     * internal pull-up provides the idle high level. */
     gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_7 | GPIO_PIN_8);
 
-    /* PDETB (NU1671 GP0 via Q3 shifter, PB0): the 3V3 side of the shifter
-     * has no board pull-up either (only the 1V8 side does, R38), so pull up
-     * internally — high = transmitter pad absent. */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_0);
-
-    /* CHARGER_INT (IP5353 INT via R49, PB2): per the IP5353 datasheet the pin
-     * is high-Z while the chip is in standby and driven HIGH (push-pull)
-     * while working. Board R8 (33k) pulls the net low in standby, so:
-     *   standby (high-Z) -> PB2 = LOW via R8
-     *   working (push-pull HIGH) -> PB2 = HIGH
-     * USB plug/unplug therefore produce clean opposing edges for the
-     * dual-edge EXTI. No internal pull needed. */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_2);
 
-    /* I2C0: PB6 SCL / PB7 SDA, AF1 open-drain with pull-up. */
     gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_10MHZ, GPIO_PIN_6 | GPIO_PIN_7);
     gpio_af_set(GPIOB, GPIO_AF_1, GPIO_PIN_6 | GPIO_PIN_7);
 
-    /* USART0: PA9 TX / PA10 RX, AF1 push-pull. */
     gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_9 | GPIO_PIN_10);
     gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_9 | GPIO_PIN_10);
     gpio_af_set(GPIOA, GPIO_AF_1, GPIO_PIN_9 | GPIO_PIN_10);
@@ -150,7 +115,6 @@ void hal_gpio_toggle(hal_pin_t pin)
     }
 }
 
-/* LEDs are active-low: driving the pin low turns the LED on. */
 void hal_led_red_on(void) { hal_gpio_set(HAL_PIN_LED_RED, false); }
 
 void hal_led_red_off(void) { hal_gpio_set(HAL_PIN_LED_RED, true); }
@@ -175,10 +139,6 @@ void hal_led_white_off(void) { hal_gpio_set(HAL_PIN_LED_WHITE, true); }
 
 void hal_led_white_toggle(void) { hal_gpio_toggle(HAL_PIN_LED_WHITE); }
 
-/* --- Module power gates ---------------------------------------------------
- * On: ODR=0 written before flipping to output, so the gate never glitches
- * high first. Off: back to a floating input — high-Z lets the board pull-up
- * hold the PMOS off, which is the sleep-safe state. */
 static const hal_pin_map_t gate_map[HAL_POWER_GATE_COUNT] = {
     [HAL_POWER_GATE_POGO3V3] = {HAL_POGO3V3_EN_PORT, HAL_POGO3V3_EN_PIN},
     [HAL_POWER_GATE_BAT] = {HAL_BAT_PMOS_EN_PORT, HAL_BAT_PMOS_EN_PIN},
@@ -209,8 +169,7 @@ bool hal_power_gate_is_on(hal_power_gate_t gate)
     if (gate >= HAL_POWER_GATE_COUNT) {
         return false;
     }
-    /* Electrical readback: driven low = on; floating with the board pull-up
-     * = off. CHG_DIAG reports the same value to the PC. */
+
     return gpio_input_bit_get(gate_map[gate].port, gate_map[gate].pin) == RESET;
 }
 
@@ -240,16 +199,13 @@ void hal_5353_key_set(bool pressed) { hal_gpio_set(HAL_PIN_KEY5353, !pressed); }
 
 void hal_5353_key_release(void)
 {
-    /* Float the KEY drive: with Q4 cut the IP5353 is unpowered and a high
-     * level on this pad pours through its ESD diodes via R48 (only 100R).
-     * The 5353_KEY net has no board pull-up, so high-Z = truly dead. */
+
     gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
 }
 
 void hal_5353_key_rearm(void)
 {
-    /* Same ordering as hal_gpio_init: ODR high BEFORE the mode switch, so the
-     * pad never glitches low (a low would read as a key press). */
+
     gpio_bit_set(GPIOA, HAL_KEY5353_PIN);
     gpio_mode_set(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
     gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_2MHZ, HAL_KEY5353_PIN);
@@ -257,7 +213,7 @@ void hal_5353_key_rearm(void)
 
 bool hal_key_pressed(void)
 {
-    /* KEY is pulled up and reads low while pressed. */
+
     return !hal_gpio_get(HAL_PIN_KEY);
 }
 
@@ -275,12 +231,7 @@ bool hal_hall_get(void)
 void hal_hall_pull_sync(void)
 {
 #ifndef HIL_TEST
-    /* Match the pad's pull to its current level: a weak pull-up holding the
-     * line while the (closed-lid) hall drives it low burns ~80-100µA for the
-     * whole sleep. With the pull always agreeing with the driven level there
-     * is no voltage across it, awake or asleep. Works for push-pull and
-     * open-drain halls alike; only a missing FPC (floating line) can chatter,
-     * and that just costs a spurious wake on a faulted unit. */
+
     const uint32_t pupd = gpio_input_bit_get(HAL_HALL_PORT, HAL_HALL_PIN) ? GPIO_PUPD_PULLUP : GPIO_PUPD_PULLDOWN;
     gpio_mode_set(HAL_HALL_PORT, GPIO_MODE_INPUT, pupd, HAL_HALL_PIN);
 #endif
