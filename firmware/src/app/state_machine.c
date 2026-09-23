@@ -82,6 +82,11 @@ static void sm_goto_idle(sm_ctx_t *ctx)
     if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
         sm_do_shutdown();
     }
+    /* End of the awake episode: forget that glasses were ever seen, so the
+     * next detection phase starts clean. Without this, one confirmed-absent
+     * force window would repeat its 9-minute penalty on every later lid
+     * cycle for the whole power-on session. */
+    ctx->saw_glass_once = false;
     hal_pwr_idle();
     sm_enter_state(ctx, ST_IDLE);
 }
