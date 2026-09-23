@@ -14,12 +14,24 @@
 #include "ota_flow.h"
 #include "power_mgmt.h"
 
-/* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms. */
+/* Timing budget from CONTEXT.md "关键时序参数汇总". All values in ms.
+ *
+ * Review 2026-09 standby targets ↔ the macro that implements each:
+ *   R1  both-full + lid open   → standby ≤50µA in 30 s
+ *         SM_MAINTAIN_IDLE_TIMEOUT_MS (30 s, glass-full MAINTAINING exit)
+ *         + LED_FULL_SOLID_MS expiry in led_effect.c (unblocks sm_can_sleep)
+ *   R1  both-full + lid shut   → standby ≤50µA in 9 min
+ *         SHUTTING_DOWN (~0.5 s) → IDLE; the 7 s full-solid LED is the only
+ *         hold-up — USB still plugged keeps CHAGER_INT high by design
+ *   R2  glasses absent (either lid) → standby ≤50µA in 30 s
+ *         SM_HANDSHAKE_TIMEOUT_MS (30 s) + saw_glass_once==false skips the
+ *         9-minute SM_FORCE_TIMEOUT_MS window
+ */
 #define SM_HANDSHAKE_5V_PULSE_MS  300U               /* 5V wake pulse length              */
 #define SM_HANDSHAKE_DISCHARGE_MS 100U               /* bus bleed before UART             */
 #define SM_HANDSHAKE_HB_GAP_MS    100U               /* gap between heartbeat retries     */
 #define SM_HANDSHAKE_HB_RETRIES   3U                 /* heartbeat attempts per handshake  */
-#define SM_HANDSHAKE_TIMEOUT_MS   30000U             /* give up window before force charge */
+#define SM_HANDSHAKE_TIMEOUT_MS   30000U             /* give up window; also R2's 30 s    */
 
 #define SM_MAINTAIN_HB_MS         1000U              /* <1.2s keeps the glass present    */
 
