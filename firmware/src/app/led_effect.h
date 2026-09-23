@@ -26,6 +26,11 @@ typedef struct
     bool glass_charging;
     bool glass_full;
     bool case_full;
+    /* Timestamp of the false→true edge of (case_full && glass_full); the
+     * full-solid effect shows for LED_FULL_SOLID_MS from that edge and then
+     * goes dark (REQ: "充满电，指示灯长亮7s后灭" — previously it stayed lit
+     * forever, which also kept sm_can_sleep() false forever). */
+    uint32_t full_solid_start_ms;
 } led_effect_ctx_t;
 
 void led_effect_init(led_effect_ctx_t *ctx);

@@ -3,6 +3,10 @@
 #include "led.h"
 
 #define BATTERY_DISPLAY_MS 7000U
+/* Both-full solid display window (REQ: solid on 7s after both full, then off;
+ * review 2026-09: the previous never-expiring solid also blocked Deep-Sleep
+ * forever via sm_can_sleep). */
+#define LED_FULL_SOLID_MS 7000U
 
 static led_color_t soc_to_color(uint8_t soc)
 {
@@ -38,7 +42,13 @@ static void apply_effect(led_effect_id_t effect, uint8_t soc)
 static led_effect_id_t resolve_effect(led_effect_ctx_t *ctx)
 {
     if (ctx->case_full && ctx->glass_full) {
-        return LED_EFFECT_FULL_SOLID;
+        /* Time-gated: only the first LED_FULL_SOLID_MS after the both-full
+         * edge lights up; afterwards it stays off while the condition holds,
+         * so sleep is no longer blocked by a permanent indicator. */
+        if (!hal_timer_expired(ctx->full_solid_start_ms, LED_FULL_SOLID_MS)) {
+            return LED_EFFECT_FULL_SOLID;
+        }
+        return LED_EFFECT_NONE;
     }
     if (ctx->glass_charging) {
         return LED_EFFECT_GLASS_CHARGING_BREATH;
@@ -60,20 +70,29 @@ void led_effect_init(led_effect_ctx_t *ctx)
     ctx->glass_charging = false;
     ctx->glass_full = false;
     ctx->case_full = false;
+    ctx->full_solid_start_ms = 0U;
     led_all_off();
 }
 
 void led_effect_set_case_info(led_effect_ctx_t *ctx, uint8_t soc, bool charging, bool full)
 {
+    bool both_before = ctx->case_full && ctx->glass_full;
     ctx->case_soc = soc;
     ctx->case_charging = charging;
     ctx->case_full = full;
+    if (!both_before && ctx->case_full && ctx->glass_full) {
+        ctx->full_solid_start_ms = hal_timer_get_ms();
+    }
 }
 
 void led_effect_set_glass_info(led_effect_ctx_t *ctx, bool charging, bool full)
 {
+    bool both_before = ctx->case_full && ctx->glass_full;
     ctx->glass_charging = charging;
     ctx->glass_full = full;
+    if (!both_before && ctx->case_full && ctx->glass_full) {
+        ctx->full_solid_start_ms = hal_timer_get_ms();
+    }
 }
 
 void led_effect_show_battery(led_effect_ctx_t *ctx, uint8_t soc)
