@@ -23,6 +23,10 @@
 
 #define SM_MAINTAIN_HB_MS         1000U              /* <1.2s keeps the glass present    */
 
+/* Review 2026-09 R1: both-full (or glass-full) + open lid must reach standby
+ * in 30 s — the 1 s keep-alive is only needed on the low-case-power path. */
+#define SM_MAINTAIN_IDLE_TIMEOUT_MS 30000U
+
 #define SM_CHARGE_POLL_OPEN_MS    30000U             /* heartbeat period, lid open     */
 #define SM_CHARGE_POLL_CLOSED_MS  60000U             /* heartbeat period, lid shut     */
 
@@ -142,6 +146,15 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
     /* Recharge: if case has enough power and glass dropped below threshold. */
     if (ctx->case_soc > SM_LOW_SOC_PCT && recharge_check(ctx->glass_soc, ctx->glass_full)) {
         sm_enter_state(ctx, ST_CHARGING);
+        return;
+    }
+
+    /* R1: a full glass needs no keep-alive. After 30 s of idling here
+     * (typical both-full + lid-open scenario), stop the heartbeat traffic
+     * and let the case go to standby via the normal IDLE path. The 1 s
+     * heartbeat below stays for the not-full glass (low-battery keep-alive). */
+    if (ctx->glass_full && hal_timer_expired(ctx->state_enter_ms, SM_MAINTAIN_IDLE_TIMEOUT_MS)) {
+        sm_goto_idle(ctx);
         return;
     }
 
