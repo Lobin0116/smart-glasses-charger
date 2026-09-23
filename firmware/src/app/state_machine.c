@@ -83,13 +83,18 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
 
     if (sm_do_handshake(ctx)) {
         ctx->glass_present = true;
+        ctx->saw_glass_once = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ctx->case_soc > SM_LOW_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
         return;
     }
 
     if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
-        if (ctx->case_soc > SM_LOW_SOC_PCT) {
+        /* R2 option A: no exchange has EVER succeeded since boot → the
+         * glasses were never on the pins; the 9-minute blind-force window
+         * would only burn battery (review: "开机无眼镜都进行心跳，长充").
+         * Cases that have talked to glasses before keep the force window. */
+        if (ctx->case_soc > SM_LOW_SOC_PCT && ctx->saw_glass_once) {
             sm_enter_state(ctx, ST_FORCE_CHARGING);
         } else {
             sm_goto_idle(ctx);
@@ -182,6 +187,7 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
 
     if (sm_do_force_charge_probe(ctx)) {
         ctx->glass_present = true;
+        ctx->saw_glass_once = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ST_CHARGING);
     }
@@ -261,6 +267,7 @@ void sm_init(sm_ctx_t *ctx)
      * event fires — the machine goes straight to Deep-Sleep as expected. */
     ctx->lid_open = false;
     ctx->hall_edge_seen = false;
+    ctx->saw_glass_once = false;
 }
 
 void sm_tick(sm_ctx_t *ctx)

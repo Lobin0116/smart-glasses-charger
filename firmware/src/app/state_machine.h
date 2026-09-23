@@ -49,6 +49,14 @@ typedef struct
      * leaves the pin level unchanged but the user clearly actuated the lid,
      * so we must still run the open path. */
     volatile bool hall_edge_seen;
+    /* True once ANY heartbeat/probe exchange has succeeded since boot.
+     * Review 2026-09 R2 (option A): a handshake timeout with this still
+     * false means the glasses were never detected — skip the 9-minute
+     * FORCE_CHARGING window and go straight to standby (~30 s total). Once
+     * set it stays set: a case that HAS talked to glasses keeps the force
+     * window as the "glasses went dark but likely still on the pins"
+     * fallback. */
+    bool saw_glass_once;
 } sm_ctx_t;
 
 extern led_effect_ctx_t g_led_ctx;
