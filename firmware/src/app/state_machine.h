@@ -37,6 +37,8 @@ typedef struct
     int8_t ntc_temp_c;
 
     volatile bool hall_edge_seen;
+
+    bool saw_glass_once;
 } sm_ctx_t;
 
 extern led_effect_ctx_t g_led_ctx;

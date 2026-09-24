@@ -2,6 +2,7 @@
 
 #include "gd32e23x.h"
 #include "hal_gpio.h"
+#include "cw2017.h"
 #include "hal_i2c.h"
 
 extern void SystemInit(void);
@@ -24,6 +25,8 @@ void pm_enter_deep_sleep(void)
 
     hal_1v8_disable();
 
+    cw2017_enter_sleep();
+
     hal_i2c_pins_sleep();
     hal_5353_key_release();
 
@@ -38,6 +41,8 @@ void pm_enter_deep_sleep(void)
     hal_power_gate_on(HAL_POWER_GATE_BAT);
     hal_1v8_enable();
     hal_i2c_pins_resume();
+
+    cw2017_resume();
     hal_5353_key_rearm();
     hal_hall_pull_sync();
 }

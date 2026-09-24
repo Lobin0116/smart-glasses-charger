@@ -26,6 +26,8 @@ typedef struct
     bool glass_charging;
     bool glass_full;
     bool case_full;
+
+    uint32_t full_solid_start_ms;
 } led_effect_ctx_t;
 
 void led_effect_init(led_effect_ctx_t *ctx);

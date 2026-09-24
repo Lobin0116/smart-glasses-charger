@@ -13,7 +13,6 @@
 #include "button.h"
 #include "ota_flow.h"
 #include "power_mgmt.h"
-
 #define SM_HANDSHAKE_5V_PULSE_MS 300U
 #define SM_HANDSHAKE_DISCHARGE_MS 100U
 #define SM_HANDSHAKE_HB_GAP_MS 100U
@@ -21,6 +20,8 @@
 #define SM_HANDSHAKE_TIMEOUT_MS 30000U
 
 #define SM_MAINTAIN_HB_MS 1000U
+
+#define SM_MAINTAIN_IDLE_TIMEOUT_MS 30000U
 
 #define SM_CHARGE_POLL_OPEN_MS 30000U
 #define SM_CHARGE_POLL_CLOSED_MS 60000U
@@ -56,6 +57,8 @@ static void sm_goto_idle(sm_ctx_t *ctx)
     if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
         sm_do_shutdown();
     }
+
+    ctx->saw_glass_once = false;
     hal_pwr_idle();
     sm_enter_state(ctx, ST_IDLE);
 }
@@ -69,13 +72,15 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
 
     if (sm_do_handshake(ctx)) {
         ctx->glass_present = true;
+        ctx->saw_glass_once = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ctx->case_soc > SM_LOW_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
         return;
     }
 
     if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
-        if (ctx->case_soc > SM_LOW_SOC_PCT) {
+
+        if (ctx->case_soc > SM_LOW_SOC_PCT && ctx->saw_glass_once) {
             sm_enter_state(ctx, ST_FORCE_CHARGING);
         } else {
             sm_goto_idle(ctx);
@@ -130,6 +135,11 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
         return;
     }
 
+    if (ctx->glass_full && hal_timer_expired(ctx->state_enter_ms, SM_MAINTAIN_IDLE_TIMEOUT_MS)) {
+        sm_goto_idle(ctx);
+        return;
+    }
+
     if (!hal_timer_expired(sm_last_action_ms, SM_MAINTAIN_HB_MS)) {
         return;
     }
@@ -154,6 +164,7 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
 
     if (sm_do_force_charge_probe(ctx)) {
         ctx->glass_present = true;
+        ctx->saw_glass_once = true;
         ctx->last_comms_ms = now;
         sm_enter_state(ctx, ST_CHARGING);
     }
@@ -228,6 +239,7 @@ void sm_init(sm_ctx_t *ctx)
 
     ctx->lid_open = false;
     ctx->hall_edge_seen = false;
+    ctx->saw_glass_once = false;
 }
 
 void sm_tick(sm_ctx_t *ctx)

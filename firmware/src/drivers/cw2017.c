@@ -17,6 +17,8 @@
 #define CW2017_CONFIG_QUICKSTART 0x30U
 #define CW2017_CONFIG_NORMAL 0x00U
 
+#define CW2017_CONFIG_SLEEP 0xC0U
+
 #define CW2017_SOC_ALERT_UPDATE_FLAG 0x80U
 #define CW2017_PROFILE_SIZE 80U
 static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
@@ -149,6 +151,22 @@ int8_t cw2017_get_temp_c(void)
     int8_t temp = 0;
     (void)cw2017_read_temp_c(&temp);
     return temp;
+}
+
+void cw2017_enter_sleep(void)
+{
+
+    uint8_t cfg = CW2017_CONFIG_SLEEP;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
+}
+
+void cw2017_resume(void)
+{
+
+    uint8_t cfg = CW2017_CONFIG_QUICKSTART;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
+    cfg = CW2017_CONFIG_NORMAL;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
 }
 
 int cw2017_get_status(cw2017_status_t *status)

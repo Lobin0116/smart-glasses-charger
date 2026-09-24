@@ -18,5 +18,7 @@ uint16_t cw2017_get_voltage_mv(void);
 int8_t cw2017_get_temp_c(void);
 
 int cw2017_get_status(cw2017_status_t *status);
+void cw2017_enter_sleep(void);
+void cw2017_resume(void);
 
 #endif
