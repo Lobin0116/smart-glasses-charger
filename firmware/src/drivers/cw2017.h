@@ -40,4 +40,14 @@ int8_t cw2017_get_temp_c(void);
  * *status is left untouched and must not be treated as a trustworthy snapshot. */
 int cw2017_get_status(cw2017_status_t *status);
 
+/* Deep-Sleep pair. The gauge hangs on VBAT (upstream of the Q4 battery cut),
+ * so the only way to stop its 17uA normal-mode drain is its own sleep mode
+ * (<1uA). enter_sleep() sets the CONFIG Sleep bits (datasheet default state
+ * after power-up is exactly this); resume() runs the documented two-step wake
+ * (0x30 -> 0x00), after which the chip resets and reports a fresh SOC from the
+ * latest battery status — the first poll after wake may read a transitional
+ * value until the SOC engine settles. */
+void cw2017_enter_sleep(void);
+void cw2017_resume(void);
+
 #endif /* CW2017_H */

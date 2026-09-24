@@ -21,6 +21,10 @@
  * into normal measurement. */
 #define CW2017_CONFIG_QUICKSTART 0x30U
 #define CW2017_CONFIG_NORMAL     0x00U
+/* Sleep entry: CONFIG bit[7:6]=Sleep, [5:4]=Restart, [3:0] reserved 0 (fig. 6).
+ * Setting Sleep=11 returns the gauge to its power-up default state (0xF0-style)
+ * at <1uA; Restart stays 00 so no re-boot is triggered on the way down. */
+#define CW2017_CONFIG_SLEEP      0xC0U
 
 /* SOC_ALERT bit7: set by host after writing a new battery profile so the gauge
  * re-evaluates SOC with the updated config (Cellwise demo: CONFIG_UPDATE_FLG). */
@@ -188,6 +192,26 @@ int8_t cw2017_get_temp_c(void)
     int8_t temp = 0;
     (void)cw2017_read_temp_c(&temp);
     return temp;
+}
+
+void cw2017_enter_sleep(void)
+{
+    /* Must run while the I2C pins are still in AF mode (before
+     * hal_i2c_pins_sleep). A failed write is harmless: the gauge then just
+     * stays in normal mode for the night. */
+    uint8_t cfg = CW2017_CONFIG_SLEEP;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
+}
+
+void cw2017_resume(void)
+{
+    /* Datasheet "Power State": 0x30 clears sleep, 0x00 clears restart; the
+     * chip then resets and reports a brand-new SOC from the latest battery
+     * status. Identical to the init quick-start tail, minus profile work. */
+    uint8_t cfg = CW2017_CONFIG_QUICKSTART;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
+    cfg = CW2017_CONFIG_NORMAL;
+    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
 }
 
 int cw2017_get_status(cw2017_status_t *status)
