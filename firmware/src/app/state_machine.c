@@ -26,6 +26,11 @@
  *   R2  glasses absent (either lid) → standby ≤50µA in 30 s
  *         SM_HANDSHAKE_TIMEOUT_MS (30 s) + saw_glass_once==false skips the
  *         9-minute SM_FORCE_TIMEOUT_MS window
+ *
+ * Stop-charge tier change 2026-09 (spec product_requirement 行2备注1/行4):
+ *   the charge-vs-maintain floor moved from 15% to 5% — SM_STOP_CHARGE_SOC_PCT
+ *   (5U) replaces the old SM_LOW_SOC_PCT (15U); 5%<SOC≤15% still charges the
+ *   glasses, at/below 5% the 5V rail is dropped (comm/shutdown kept).
  */
 #define SM_HANDSHAKE_5V_PULSE_MS  300U               /* 5V wake pulse length              */
 #define SM_HANDSHAKE_DISCHARGE_MS 100U               /* bus bleed before UART             */
@@ -48,7 +53,12 @@
 #define SM_SHUTDOWN_GAP_MS        100U               /* AT request/response deadline      */
 #define SM_SHUTDOWN_RETRIES       5U
 
-#define SM_LOW_SOC_PCT            15U                /* charge vs maintain threshold       */
+/* Charge-vs-maintain threshold: at or below this case SOC the glasses get no
+ * 5V (MAINTAINING domain, shutdown command still delivered). Spec
+ * product_requirement 行2备注1/行4: 5%<SOC≤15% must still charge, only ≤5%
+ * stops charging (and 1<%SOC≤5 keeps comm/shutdown capability). Was 15U as
+ * SM_LOW_SOC_PCT before the 2026-09 spec review. */
+#define SM_STOP_CHARGE_SOC_PCT    5U                 /* stop-charge floor                  */
 
 /* One full handshake attempt covers the 5V pulse, the discharge, and the gaps
  * between retries (the final retry needs no trailing gap). Pacing sm_tick() at
@@ -79,7 +89,7 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next)
 /* Low-battery path: before sleeping, tell the glasses to shut down. */
 static void sm_goto_idle(sm_ctx_t *ctx)
 {
-    if (ctx->glass_present && ctx->case_soc <= SM_LOW_SOC_PCT) {
+    if (ctx->glass_present && ctx->case_soc <= SM_STOP_CHARGE_SOC_PCT) {
         sm_do_shutdown();
     }
     /* End of the awake episode: forget that glasses were ever seen, so the
@@ -102,7 +112,7 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
         ctx->glass_present = true;
         ctx->saw_glass_once = true;
         ctx->last_comms_ms = now;
-        sm_enter_state(ctx, ctx->case_soc > SM_LOW_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
+        sm_enter_state(ctx, ctx->case_soc > SM_STOP_CHARGE_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
         return;
     }
 
@@ -111,7 +121,7 @@ static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
          * glasses were never on the pins; the 9-minute blind-force window
          * would only burn battery (review: "开机无眼镜都进行心跳，长充").
          * Cases that have talked to glasses before keep the force window. */
-        if (ctx->case_soc > SM_LOW_SOC_PCT && ctx->saw_glass_once) {
+        if (ctx->case_soc > SM_STOP_CHARGE_SOC_PCT && ctx->saw_glass_once) {
             sm_enter_state(ctx, ST_FORCE_CHARGING);
         } else {
             sm_goto_idle(ctx);
@@ -132,6 +142,15 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
     }
     if (ctx->glass_full) {
         sm_enter_state(ctx, ctx->lid_open ? ST_MAINTAINING : ST_SHUTTING_DOWN);
+        return;
+    }
+
+    /* Runtime drain guard: the case battery sagged to/below the stop-charge
+     * floor while already in CHARGING (e.g. boost under load, gauge catching
+     * up after the 500 ms refresh) → stop supplying 5V and drop to MAINTAINING,
+     * which keeps the heartbeat/shutdown path alive without the rail. */
+    if (ctx->glass_present && ctx->case_soc <= SM_STOP_CHARGE_SOC_PCT) {
+        sm_enter_state(ctx, ST_MAINTAINING);
         return;
     }
 
@@ -166,7 +185,7 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
     }
 
     /* Recharge: if case has enough power and glass dropped below threshold. */
-    if (ctx->case_soc > SM_LOW_SOC_PCT && recharge_check(ctx->glass_soc, ctx->glass_full)) {
+    if (ctx->case_soc > SM_STOP_CHARGE_SOC_PCT && recharge_check(ctx->glass_soc, ctx->glass_full)) {
         sm_enter_state(ctx, ST_CHARGING);
         return;
     }
