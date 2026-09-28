@@ -266,10 +266,13 @@ bool sm_can_sleep(const sm_ctx_t *ctx)
     if (ctx->state != ST_IDLE) {
         return false;
     }
-    if (g_led_ctx.case_charging
-        || g_led_ctx.glass_charging
+    /* Sleep only with a fully dark LED: ANY active effect (breath, solid,
+     * battery overlay) means PWM/timer work in flight — freezing it in
+     * Deep-Sleep would leave the LED stuck mid-duty. This replaces the old
+     * per-field checks, which missed the glasses-present effects added with
+     * the 2026-09 display policy. */
+    if (g_led_ctx.current != LED_EFFECT_NONE
         || g_led_ctx.overlay != LED_EFFECT_NONE
-        || g_led_ctx.current == LED_EFFECT_FULL_SOLID
         || button_is_busy()) {
         return false;
     }
@@ -371,10 +374,10 @@ void sm_tick(sm_ctx_t *ctx)
              * loop pass, so sm_lid_event_pending stays false, this ST_IDLE
              * branch sees nothing-to-do and sleeps again before the event is
              * ever dispatched — the lid event is lost forever. */
-            if (g_led_ctx.case_charging
-                || g_led_ctx.glass_charging
+            /* Mirror of sm_can_sleep's LED gate: stay awake while any effect
+             * or the button poll is still active (see the comment there). */
+            if (g_led_ctx.current != LED_EFFECT_NONE
                 || g_led_ctx.overlay != LED_EFFECT_NONE
-                || g_led_ctx.current == LED_EFFECT_FULL_SOLID
                 || button_is_busy()) {
                 break;
             }

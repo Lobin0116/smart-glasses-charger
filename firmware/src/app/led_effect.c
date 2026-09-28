@@ -85,7 +85,6 @@ void led_effect_init(led_effect_ctx_t *ctx)
     ctx->overlay_duration_ms = 0U;
     ctx->case_soc = 0U;
     ctx->case_charging = false;
-    ctx->glass_charging = false;
     ctx->glass_full = false;
     ctx->case_full = false;
     ctx->full_solid_start_ms = 0U;

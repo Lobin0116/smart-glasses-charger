@@ -24,7 +24,6 @@ typedef struct
     uint32_t overlay_duration_ms;
     uint8_t case_soc;
     bool case_charging;
-    bool glass_charging;
     bool glass_full;
     bool case_full;
     /* Timestamp of the false→true edge of (case_full && glass_full); the
