@@ -94,6 +94,27 @@ void hal_gpio_init(void)
     /* User inputs with pull-up (KEY, HALL). */
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
 
+    /* Unused pins parked in ANALOG mode (input Schmitt buffer disconnected,
+     * no pull resistors): each pin left as a floating digital input can sit
+     * mid-rail and leak a few µA through its buffer — together they were the
+     * bulk of the 65µA-vs-50µA standby gap (bench 2026-09-28). The set:
+     *   PA0/PA1/PA4  CH340K RTS#/CTS#/DTR# — chip rail is unpowered (its
+     *                gate pad was repurposed for the MT3608L boost EN), so a
+     *                pull-UP here would inject through the CH340K's ESD
+     *                diodes; ANALOG touches nothing.
+     *   PA2/PA3      CH340K UART1 RXD/TXD, same dead rail (reserved for a
+     *                future host serial bring-up).
+     *   PA11/PA12    USBD-/+ dead wiring (GD32E230 has no USB peripheral).
+     *   PC14/PC15/PF0/PF1  oscillator pads, crystal deleted on V2.
+     * SWD PA13/PA14 stay untouched — reconfiguring them would break the
+     * debugger connection. */
+    gpio_mode_set(GPIOA,
+                  GPIO_MODE_ANALOG,
+                  GPIO_PUPD_NONE,
+                  GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_11 | GPIO_PIN_12);
+    gpio_mode_set(GPIOC, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, GPIO_PIN_14 | GPIO_PIN_15);
+    gpio_mode_set(GPIOF, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, GPIO_PIN_0 | GPIO_PIN_1);
+
     /* BAT_INT (CW2017 ALARM, PA8) and nINT (NU1671, PA7): open-drain outputs
      * that assert low. Neither has a board pull-up on its 3V3 side, so the
      * internal pull-up provides the idle high level. */
@@ -240,10 +261,12 @@ void hal_5353_key_set(bool pressed) { hal_gpio_set(HAL_PIN_KEY5353, !pressed); }
 
 void hal_5353_key_release(void)
 {
-    /* Float the KEY drive: with Q4 cut the IP5353 is unpowered and a high
-     * level on this pad pours through its ESD diodes via R48 (only 100R).
-     * The 5353_KEY net has no board pull-up, so high-Z = truly dead. */
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
+    /* Pull the KEY line DOWN instead of leaving it floating: with Q4 cut the
+     * IP5353 is unpowered and a high level would pour through its ESD diodes
+     * via R48 (only 100R); a floating pad would let the input buffer sit
+     * mid-rail and leak all night. Pulled low, both ends of the net rest at
+     * 0V and the buffer sees a solid level. */
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLDOWN, HAL_KEY5353_PIN);
 }
 
 void hal_5353_key_rearm(void)
