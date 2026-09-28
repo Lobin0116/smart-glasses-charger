@@ -59,6 +59,12 @@ static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
  * 1/256% fraction is dropped, matching the rest of the firmware's 1% grading. */
 static int cw2017_read_soc(uint8_t *soc) { return hal_i2c_read_reg(CW2017_I2C_ADDR, CW2017_REG_SOC_H, soc, 1U); }
 
+/* Hold-last-valid latch for cw2017_get_soc: every successful in-range read is
+ * stored here, and any later failed/out-of-range read replays the latched
+ * value instead of faking a fresh one. */
+static uint8_t last_soc;
+static bool soc_valid;
+
 /* VCELL spans 0x02-0x03 as a 14-bit field. The slave auto-increments its
  * register pointer across the two-byte read, so a single transfer from 0x02
  * yields [high, low]. The LSB is 312.5 uV, which is exactly 5/16 mV. */
@@ -163,20 +169,29 @@ int cw2017_init(void)
     return 0;
 }
 
+/* SOC read with hold-last-valid semantics: a successful in-range read is
+ * latched and returned. On an I2C failure or an out-of-range value the last
+ * latched reading is replayed, so a transient bus error (or the quickstart's
+ * transitional 0) no longer repaints the LED tier — in particular it cannot
+ * mask a genuinely low battery as 100% white. Only before the FIRST valid
+ * read (boot with a dead/unresponsive gauge) does the old 100% fallback
+ * apply, keeping the LED out of the red low-batt blink at power-on. */
 uint8_t cw2017_get_soc(void)
 {
     uint8_t soc = 0U;
     if (cw2017_read_soc(&soc) != 0) {
-        /* I2C read failed — battery gauge not responding. Assume full so the
-         * LED falls into the white band rather than stuck on red low-batt
-         * blink. Real fix is a battery profile burned into the CW2017. */
-        return 100U;
+        /* I2C read failed — battery gauge not responding. Real fix is a
+         * battery profile burned into the CW2017. */
+        return soc_valid ? last_soc : 100U;
     }
     if (soc == 0U || soc > 100U) {
         /* Abnormal reading (0 = quickstart transitional or dead battery;
-         * >100 = unprofiled gauge). Same fallback as above. */
-        return 100U;
+         * >100 = unprofiled gauge). Same hold/fallback policy as an I2C
+         * failure. */
+        return soc_valid ? last_soc : 100U;
     }
+    last_soc = soc;
+    soc_valid = true;
     return soc;
 }
 
