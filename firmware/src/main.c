@@ -124,6 +124,11 @@ static void refresh_case_status(void)
     (void)nu1671_poll();
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
+    /* Glasses-side status is not polled here — it comes from the heartbeat
+     * replies that update sm.glass_soc/glass_full — but this is the single
+     * 500 ms point where the LED layer gets refreshed, so feed it here too
+     * (the display policy keys off sm.glass_present). */
+    led_effect_set_glass_info(&g_led_ctx, sm.glass_present, sm.glass_soc, sm.glass_full);
 }
 
 void board_init(void)

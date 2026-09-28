@@ -11,6 +11,7 @@ typedef enum
     LED_EFFECT_NONE,
     LED_EFFECT_CASE_CHARGING_BREATH,
     LED_EFFECT_GLASS_CHARGING_BREATH,
+    LED_EFFECT_GLASS_FULL,
     LED_EFFECT_FULL_SOLID,
     LED_EFFECT_BATTERY_DISPLAY,
 } led_effect_id_t;
@@ -31,11 +32,22 @@ typedef struct
      * goes dark (REQ: "充满电，指示灯长亮7s后灭" — previously it stayed lit
      * forever, which also kept sm_can_sleep() false forever). */
     uint32_t full_solid_start_ms;
+    /* Glasses-side mirror of the case fields (user decision 2026-09: with the
+     * glasses on the pins the LED reports the GLASSES battery, not the case's;
+     * only when they are absent does the case status show). glass_full_start_ms
+     * timestamps the false→true edge of glass_full alone so the glasses-full
+     * indication can be time-gated like the both-full one. */
+    uint8_t glass_soc;
+    bool glass_present;
+    uint32_t glass_full_start_ms;
 } led_effect_ctx_t;
 
 void led_effect_init(led_effect_ctx_t *ctx);
 void led_effect_set_case_info(led_effect_ctx_t *ctx, uint8_t soc, bool charging, bool full);
-void led_effect_set_glass_info(led_effect_ctx_t *ctx, bool charging, bool full);
+/* Push glasses-side status (presence, SOC, full flag) as refreshed from the
+ * heartbeat replies. `present` decides which battery the steady-state LED
+ * talks about: glasses present → glasses status, absent → case status. */
+void led_effect_set_glass_info(led_effect_ctx_t *ctx, bool present, uint8_t soc, bool full);
 void led_effect_show_battery(led_effect_ctx_t *ctx, uint8_t soc);
 void led_effect_overlay(led_effect_ctx_t *ctx, led_effect_id_t effect, uint32_t duration_ms);
 void led_effect_poll(led_effect_ctx_t *ctx);
