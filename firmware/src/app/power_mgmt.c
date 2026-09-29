@@ -2,7 +2,6 @@
 
 #include "gd32e23x.h"
 #include "hal_gpio.h"
-#include "cw2017.h"
 #include "hal_i2c.h"
 
 /* Provided by the CMSIS startup file. Re-running it after a Deep-Sleep wake
@@ -46,11 +45,6 @@ void pm_enter_deep_sleep(void)
      * while asleep (NU1671 is field-powered, the POGO switch is unpowered). */
     hal_1v8_disable();
 
-    /* Fuel gauge into its own sleep mode BEFORE the I2C pins float: it hangs
-     * on VBAT (upstream of the Q4 cut), so this is the only way to stop its
-     * 17µA normal-mode drain for the night (<1µA asleep). */
-    cw2017_enter_sleep();
-
     /* Float the I2C bus pins and the IP5353 KEY drive: with Q4 cut the IP5353
      * is unpowered, and any level we hold on those nets back-feeds its ESD
      * diodes (KEY worst: R48 is only 100R). Bench finding 2026-09-14. */
@@ -81,10 +75,6 @@ void pm_enter_deep_sleep(void)
     hal_power_gate_on(HAL_POWER_GATE_BAT);
     hal_1v8_enable();
     hal_i2c_pins_resume();
-    /* Gauge back to normal measurement — datasheet wake (0x30 -> 0x00); the
-     * chip resets and re-derives SOC, so the first refresh_case_status may
-     * catch a transitional reading until the engine settles. */
-    cw2017_resume();
     hal_5353_key_rearm();
     hal_hall_pull_sync();
 }
