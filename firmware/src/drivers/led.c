@@ -56,6 +56,13 @@ static void led_hw_write(led_color_t color, bool on)
         case LED_WHITE:
             on ? hal_led_white_on() : hal_led_white_off();
             break;
+        case LED_ORANGE:
+            /* Virtual color: red and green in lockstep — the two led_apply
+             * calls share one state, so both pins always carry the same PWM
+             * phase and duty, which is what keeps the mix a stable orange
+             * instead of shimmering between hues. */
+            on ? (hal_led_red_on(), hal_led_green_on()) : (hal_led_red_off(), hal_led_green_off());
+            break;
         default:
             break;
     }
@@ -114,6 +121,15 @@ void led_set(led_color_t color, led_mode_t mode)
     if (color >= LED_COLOR_COUNT) {
         return;
     }
+    /* One active color at a time: clear every other state first. Without
+     * this a switch away from LED_ORANGE would leave its red or green half
+     * running under the new color. */
+    for (uint32_t i = 0U; i < LED_COLOR_COUNT; i++) {
+        if (i != (uint32_t)color) {
+            leds[i].mode = LED_OFF;
+            led_apply(&leds[i], (led_color_t)i, false);
+        }
+    }
     led_state_t *state = &leds[color];
     state->mode = mode;
     state->phase_start = hal_timer_get_ms();
@@ -137,12 +153,10 @@ void led_all_off(void)
 void led_set_by_soc(uint8_t soc)
 {
     led_color_t color;
-    if (soc > 40U) {
-        color = LED_WHITE;
-    } else if (soc >= 15U) {
+    if (soc > 80U) {
         color = LED_GREEN;
     } else {
-        color = LED_RED; /* <15%: red, covering the 5-15% and <5% bands */
+        color = LED_ORANGE; /* 20-80% solid; <20% orange, caller blinks it */
     }
     led_set(color, LED_ON);
 }

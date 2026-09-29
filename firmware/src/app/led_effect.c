@@ -12,15 +12,17 @@
  * same treatment as both-full — solid for 7 s after the edge, then dark). */
 #define LED_GLASS_FULL_MS 7000U
 
+/* Battery tier colors (user decision 2026-09-29, superseding the xlsx
+ * white/green/red tiers): >80% green, 20-80% orange, <20% orange — with the
+ * battery-display blink kicking in below 20% in apply_effect. White is now
+ * reserved for the both-full solid indicator alone. Applies to the case and
+ * glasses SOC displays alike (both feed through this function). */
 static led_color_t soc_to_color(uint8_t soc)
 {
-    if (soc > 40U) {
-        return LED_WHITE;
-    }
-    if (soc >= 15U) {
+    if (soc > 80U) {
         return LED_GREEN;
     }
-    return LED_RED;
+    return LED_ORANGE;
 }
 
 static void apply_effect(led_effect_id_t effect, uint8_t soc)
@@ -38,8 +40,9 @@ static void apply_effect(led_effect_id_t effect, uint8_t soc)
             led_set(LED_WHITE, LED_ON);
             break;
         case LED_EFFECT_BATTERY_DISPLAY:
-            /* REQ §3 "电量查看": 1%<SOC≤5% 红闪 7s, >5% 对应颜色长亮 7s. */
-            led_set(soc_to_color(soc), (soc <= 5U) ? LED_BLINK : LED_ON);
+            /* 电量查看, 2026-09-29 scheme: <20% orange blink 7s, otherwise
+             * the tier color solid for 7 s. */
+            led_set(soc_to_color(soc), (soc < 20U) ? LED_BLINK : LED_ON);
             break;
         default:
             break;

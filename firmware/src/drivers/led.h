@@ -15,6 +15,7 @@ typedef enum
     LED_GREEN,
     LED_BLUE,
     LED_WHITE,
+    LED_ORANGE, /* virtual color: red + green channels in lockstep, equal duty */
     LED_COLOR_COUNT,
 } led_color_t;
 
@@ -37,7 +38,8 @@ void led_set(led_color_t color, led_mode_t mode);
 void led_all_off(void);
 
 /* Convenience: pick a solid color from the battery state of charge and light
- * it - white (>40%), green (15-40%), red (<15%). */
+ * it - green (>80%), orange (20-80%), orange (<20%, caller adds blinking).
+ * User decision 2026-09-29, superseding the xlsx white/green/red tiers. */
 void led_set_by_soc(uint8_t soc);
 
 /* Advance breath and blink effects. Called from led_effect_poll in the main
