@@ -12,12 +12,12 @@
  * same treatment as both-full — solid for 7 s after the edge, then dark). */
 #define LED_GLASS_FULL_MS 7000U
 
-/* Battery tier colors (user decision 2026-09-29, superseding the xlsx
- * white/green/red tiers): >80% green, 20-80% orange, <20% orange — with the
- * battery-display blink kicking in below 20% in apply_effect. White is now
- * reserved for the both-full solid indicator alone. Applies to the case and
- * glasses SOC displays alike (both feed through this function). */
-static led_color_t soc_to_color(uint8_t soc)
+/* Two tier palettes, one per displayed battery (user decision 2026-09-29):
+ *  - CASE: >80% green, 20-80% orange, <20% orange + blink in the battery
+ *    view. Supersedes the xlsx white/green/red bands for the case.
+ *  - GLASSES: keeps the original xlsx bands — white >40%, green 15-40%,
+ *    red <15% — so the two sides read differently at a glance. */
+static led_color_t case_soc_color(uint8_t soc)
 {
     if (soc > 80U) {
         return LED_GREEN;
@@ -25,24 +25,35 @@ static led_color_t soc_to_color(uint8_t soc)
     return LED_ORANGE;
 }
 
-static void apply_effect(led_effect_id_t effect, uint8_t soc)
+static led_color_t glass_soc_color(uint8_t soc)
+{
+    if (soc > 40U) {
+        return LED_WHITE;
+    }
+    if (soc >= 15U) {
+        return LED_GREEN;
+    }
+    return LED_RED;
+}
+
+static void apply_effect(led_effect_id_t effect, led_color_t color, uint8_t soc)
 {
     led_all_off();
     switch (effect) {
         case LED_EFFECT_CASE_CHARGING_BREATH:
         case LED_EFFECT_GLASS_CHARGING_BREATH:
-            led_set(soc_to_color(soc), LED_BREATH);
+            led_set(color, LED_BREATH);
             break;
         case LED_EFFECT_GLASS_FULL:
-            led_set(soc_to_color(soc), LED_ON);
+            led_set(color, LED_ON);
             break;
         case LED_EFFECT_FULL_SOLID:
             led_set(LED_WHITE, LED_ON);
             break;
         case LED_EFFECT_BATTERY_DISPLAY:
-            /* 电量查看, 2026-09-29 scheme: <20% orange blink 7s, otherwise
-             * the tier color solid for 7 s. */
-            led_set(soc_to_color(soc), (soc < 20U) ? LED_BLINK : LED_ON);
+            /* Case battery view, 2026-09-29 scheme: <20% orange blink 7s,
+             * otherwise the tier color solid for 7 s. */
+            led_set(color, (soc < 20U) ? LED_BLINK : LED_ON);
             break;
         default:
             break;
@@ -150,15 +161,17 @@ void led_effect_poll(led_effect_ctx_t *ctx)
 
     if (target != ctx->current) {
         ctx->current = target;
-        /* Which battery the effect colors from: the glasses effects track the
-         * glasses SOC (user decision 2026-09 display policy), everything else
-         * (case breath, battery display) the case SOC. FULL_SOLID is white
-         * either way; it reads the case value for symmetry. */
+        /* Which battery and which palette the effect colors from: glasses
+         * effects use the glasses SOC with its original white/green/red
+         * bands; case effects (breath, battery view) use the case SOC with
+         * the 2026-09-29 green/orange bands. */
         uint8_t soc = ctx->case_soc;
+        led_color_t color = case_soc_color(soc);
         if (target == LED_EFFECT_GLASS_FULL || target == LED_EFFECT_GLASS_CHARGING_BREATH) {
             soc = ctx->glass_soc;
+            color = glass_soc_color(soc);
         }
-        apply_effect(target, soc);
+        apply_effect(target, color, soc);
     }
 
     led_poll();
