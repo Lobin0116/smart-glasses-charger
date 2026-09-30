@@ -42,7 +42,7 @@
  * ratio is (165/255)^2.2 = 39%. The green die's efficacy edge at equal
  * duty is ~1.5x, so 39%/1.5 = 25% = "红4绿1". Bench-tune to taste; 100 =
  * the old equal-duty mix. */
-#define LED_ORANGE_GREEN_PCT 25U
+#define LED_ORANGE_GREEN_PCT 20U
 
 typedef struct
 {
