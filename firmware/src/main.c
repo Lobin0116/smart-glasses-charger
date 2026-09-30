@@ -167,6 +167,15 @@ int main(void)
      * fed from it); power_mgmt drops it before Deep-Sleep. */
     hal_1v8_enable();
 
+    /* Re-run the gauge bring-up with every rail now live. The first call in
+     * board_init ran while the battery rail was still cut: the IP5353 sits
+     * dark on the same I2C bus in that window, and a gauge left in its
+     * power-up sleep (e.g. firmware swapped without removing VBAT) needs the
+     * 0x30/0x00 wake + quick-start to report anything. Those early writes
+     * fail silently, so without this retry the SOC reads fail forever and
+     * cw2017_get_soc's fallback paints a constant 100%. */
+    (void)cw2017_init();
+
     /* Drop spurious EXTI edges captured during power-rail settling. */
     exti_pending = 0U;
 #ifdef HIL_TEST
