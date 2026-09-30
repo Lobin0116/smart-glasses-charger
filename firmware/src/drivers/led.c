@@ -35,9 +35,14 @@
  * with equal series resistors the red die (low Vf, lower efficiency) renders
  * far dimmer than the green — the mix skews green instead of reading orange
  * (bench 2026-09-30: "红绿灯一起亮 红灯很暗"). Give red the full duty and
- * scale the green channel down by this factor. Bench-tune to taste; 100 = the
- * old equal-duty mix. */
-#define LED_ORANGE_GREEN_PCT 35U
+ * scale the green channel down by this factor.
+ *
+ * Derivation (user ratio cross-checked with theory, 2026-09-30): target
+ * #FFA500 = R255:G165 in sRGB, which is gamma-encoded — the LINEAR light
+ * ratio is (165/255)^2.2 = 39%. The green die's efficacy edge at equal
+ * duty is ~1.5x, so 39%/1.5 = 25% = "红4绿1". Bench-tune to taste; 100 =
+ * the old equal-duty mix. */
+#define LED_ORANGE_GREEN_PCT 25U
 
 typedef struct
 {
