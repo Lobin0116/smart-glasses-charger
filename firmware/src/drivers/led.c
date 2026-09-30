@@ -31,6 +31,14 @@
 /* Blink: PWM at max duty during the on half, fully off during the off half. */
 #define LED_BLINK_DUTY_PCT LED_MAX_DUTY_PCT
 
+/* Orange mix balance: red and green dies share the LED_ORANGE PWM state, but
+ * with equal series resistors the red die (low Vf, lower efficiency) renders
+ * far dimmer than the green — the mix skews green instead of reading orange
+ * (bench 2026-09-30: "红绿灯一起亮 红灯很暗"). Give red the full duty and
+ * scale the green channel down by this factor. Bench-tune to taste; 100 = the
+ * old equal-duty mix. */
+#define LED_ORANGE_GREEN_PCT 35U
+
 typedef struct
 {
     led_mode_t mode;
@@ -190,21 +198,42 @@ void led_pwm_tick(void)
         if (mode == LED_OFF) {
             continue;
         }
+
+        /* Resolve this tick's duty (percent units) for the mode. */
+        uint32_t duty;
         if (mode == LED_ON) {
             /* Solid-on at a throttled PWM duty (LED_ON_DUTY_PCT) so it
              * matches the breath brightness scale instead of slamming the
              * pin to VDD for a 100 % on that's blinding in a dark room. */
-            led_apply(state, (led_color_t)i, pwm_sub < LED_ON_DUTY_PCT);
-            continue;
-        }
-        if (mode == LED_BREATH) {
+            duty = LED_ON_DUTY_PCT;
+        } else if (mode == LED_BREATH) {
             uint32_t phase = (now_ms - state->phase_start) % LED_BREATH_PERIOD_MS;
-            uint32_t duty = led_breath_duty(phase);  /* 0..MAX (percent) */
-            led_apply(state, (led_color_t)i, pwm_sub < duty);
-        } else { /* LED_BLINK — PWM at LED_BLINK_DUTY_PCT during on-half, off otherwise */
+            duty = led_breath_duty(phase);  /* 0..MAX (percent) */
+        } else { /* LED_BLINK — max duty during the on half, dark otherwise */
             uint32_t phase = (now_ms - state->phase_start) % LED_BLINK_PERIOD_MS;
-            bool in_on_half = phase < (LED_BLINK_PERIOD_MS / 2U);
-            led_apply(state, (led_color_t)i, in_on_half && (pwm_sub < LED_BLINK_DUTY_PCT));
+            duty = (phase < (LED_BLINK_PERIOD_MS / 2U)) ? LED_BLINK_DUTY_PCT : 0U;
+        }
+
+        if ((led_color_t)i == LED_ORANGE) {
+            /* Split the shared state into two pins with the red at full duty
+             * and green scaled down (see LED_ORANGE_GREEN_PCT) so the mix
+             * lands on orange instead of green-leaning. Same pwm_sub phase
+             * for both keeps the hue stable. */
+            bool red_on = pwm_sub < duty;
+            bool green_on = pwm_sub < ((duty * LED_ORANGE_GREEN_PCT) / 100U);
+            state->last_on = red_on; /* tracks the red half for skip-writes */
+            if (red_on) {
+                hal_led_red_on();
+            } else {
+                hal_led_red_off();
+            }
+            if (green_on) {
+                hal_led_green_on();
+            } else {
+                hal_led_green_off();
+            }
+        } else {
+            led_apply(state, (led_color_t)i, pwm_sub < duty);
         }
     }
 }
