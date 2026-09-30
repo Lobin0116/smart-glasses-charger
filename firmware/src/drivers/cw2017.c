@@ -4,6 +4,7 @@
 
 #include "hal_i2c.h"
 #include "hal_timer.h"
+#include "hal_wwdgt.h"
 
 /* 7-bit I2C address, latched on the bus by hal_i2c. */
 #define CW2017_I2C_ADDR 0x63U
@@ -60,6 +61,18 @@ static int cw2017_read_soc(uint8_t *soc) { return hal_i2c_read_reg(CW2017_I2C_AD
  * value instead of faking a fresh one. */
 static uint8_t last_soc;
 static bool soc_valid;
+
+/* Self-heal: a gauge that missed its boot-time wake (rail-gating order, or a
+ * battery/supply hot-plug after boot — the chip always powers up asleep)
+ * would otherwise NACK forever and paint the 100% fallback. After
+ * CW2017_RETRY_FAILS consecutive bad reads (~2 s at the 500 ms poll) re-run
+ * the full bring-up, rate-limited by the cooldown so a truly dead bus is not
+ * hammered. The retry is wrapped with watchdog feeds: the profile re-burn
+ * path can block ~250 ms, past the 20 ms WWDGT window. */
+#define CW2017_RETRY_FAILS      4U
+#define CW2017_RETRY_COOLDOWN_MS 30000U
+static uint8_t retry_fails;
+static uint32_t last_retry_ms;
 
 /* VCELL spans 0x02-0x03 as a 14-bit field. The slave auto-increments its
  * register pointer across the two-byte read, so a single transfer from 0x02
@@ -172,20 +185,40 @@ int cw2017_init(void)
  * mask a genuinely low battery as 100% white. Only before the FIRST valid
  * read (boot with a dead/unresponsive gauge) does the old 100% fallback
  * apply, keeping the LED out of the red low-batt blink at power-on. */
+static void cw2017_retry_heal(void)
+{
+    retry_fails++;
+    if (retry_fails < CW2017_RETRY_FAILS) {
+        return;
+    }
+    uint32_t now = hal_timer_get_ms();
+    if (!hal_timer_expired(last_retry_ms, CW2017_RETRY_COOLDOWN_MS)) {
+        return;
+    }
+    last_retry_ms = now;
+    retry_fails = 0U;
+    hal_wwdgt_feed();
+    (void)cw2017_init();
+    hal_wwdgt_feed();
+}
+
 uint8_t cw2017_get_soc(void)
 {
     uint8_t soc = 0U;
     if (cw2017_read_soc(&soc) != 0) {
+        cw2017_retry_heal();
         /* I2C read failed — battery gauge not responding. Real fix is a
          * battery profile burned into the CW2017. */
         return soc_valid ? last_soc : 100U;
     }
     if (soc == 0U || soc > 100U) {
+        cw2017_retry_heal();
         /* Abnormal reading (0 = quickstart transitional or dead battery;
          * >100 = unprofiled gauge). Same hold/fallback policy as an I2C
          * failure. */
         return soc_valid ? last_soc : 100U;
     }
+    retry_fails = 0U;
     last_soc = soc;
     soc_valid = true;
     return soc;
