@@ -69,13 +69,6 @@ void pm_enter_deep_sleep(void)
     SystemInit();
     SystemCoreClockUpdate();
 
-    /* DIAG v2: prove the wake path is executing — blue flash as the very
-     * first post-WFI action. No flash on a button press = the EXTI wake
-     * itself never fired; flash but no further response = the wake path or
-     * the first loop pass hangs after this point. TEMPORARY. */
-    hal_led_blue_on();
-    hal_timer_delay_ms(300);
-    hal_led_blue_off();
 
     /* Back awake: restore the POGO supply before any handshake can run. */
     hal_power_gate_on(HAL_POWER_GATE_POGO3V3);
