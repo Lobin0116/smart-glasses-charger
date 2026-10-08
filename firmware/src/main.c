@@ -134,6 +134,7 @@ static void refresh_case_status(void)
 void board_init(void)
 {
     hal_gpio_init();
+    hal_led_red_on(); /* DIAG v2: RED held for the rest of board_init */
     hal_timer_init();
     hal_i2c_init();
     hal_usart_init();
@@ -142,11 +143,17 @@ void board_init(void)
     hal_wwdgt_init(20);
     led_init();
     cw2017_init();
+    hal_led_red_off(); /* DIAG v2: board_init complete */
 }
 
 int main(void)
 {
     board_init();
+    /* DIAG v2: GREEN held across the pre-loop tail (state/led/button init,
+     * pwr_idle, gates, 1V8, gauge re-run, edge clear, 500 ms settle, first
+     * refresh). Stuck RED = blocked inside board_init; stuck GREEN = blocked
+     * in this tail; dark + blue = loop alive. TEMPORARY. */
+    hal_led_green_on();
     sm_init(&sm);
     led_effect_init(&g_led_ctx);
     button_init();
@@ -195,6 +202,7 @@ int main(void)
     last_soc_refresh = hal_timer_get_ms();
 
     hal_wwdgt_feed();
+    hal_led_green_off(); /* DIAG v2: main loop is running */
 
     while (1) {
         /* EXTI wake-up: re-read charge/SOC state immediately so the state
