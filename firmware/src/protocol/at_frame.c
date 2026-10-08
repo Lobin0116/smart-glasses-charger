@@ -131,7 +131,19 @@ at_status at_frame_parse(
     return AT_SUCCESS;
 }
 
-uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode)
+/* Shared stage machine behind at_frame_recv / at_frame_try. Both walk the
+ * same stages (hunt magic lead → 10-byte header → magic/size/opcode checks →
+ * consume payload); `blocking` only selects the wait policy when bytes are
+ * missing:
+ *   blocking=true  → spin with the per-stage/per-byte timeout semantics
+ *                    (at_frame_recv; unchanged behavior)
+ *   blocking=false → return 0 immediately, leaving the ring untouched, so the
+ *                    caller can poll again later (at_frame_try)
+ * Definitive failures (bad magic word, oversized frame, stale payload gap)
+ * record the same diagnostics and run the same buffer cleanup in both modes;
+ * "not enough bytes yet" in non-blocking mode is a poll outcome, not a
+ * failure, and leaves at_frame_last_fail_stage alone. */
+static uint16_t at_frame_core(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode, bool blocking)
 {
     uint32_t start = hal_timer_get_ms();
     uint8_t c;
@@ -141,10 +153,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
      * in the buffer for another consumer. */
     while (true) {
 #ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();  /* UART wait can outlast WWDGT 20ms window when host
-                            * is slow (pyserial async write); feed every iter. */
+        if (blocking) {
+            hal_wwdgt_feed(); /* UART wait can outlast WWDGT 20ms window when host
+                               * is slow (pyserial async write); feed every iter. */
+        }
 #endif
         if (!hal_usart_rx_peek(&c)) {
+            if (!blocking) {
+                return 0U; /* ring drained — nothing complete yet, poll again */
+            }
             if (hal_timer_expired(start, timeout_ms)) {
                 at_frame_last_fail_stage = 1U;
                 at_frame_last_buf_bytes = hal_usart_rx_avail();
@@ -162,10 +179,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     uint8_t header[AT_FRAME_HEADER_SIZE];
     while (true) {
 #ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();
+        if (blocking) {
+            hal_wwdgt_feed();
+        }
 #endif
         if (hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
             break;
+        }
+        if (!blocking) {
+            return 0U; /* header still in flight — poll again */
         }
         if (hal_timer_expired(start, timeout_ms)) {
             at_frame_last_fail_stage = 2U;
@@ -211,24 +233,37 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         return 0U;
     }
 
-    /* Consume the frame: drain the header we already peeked, then the payload. */
-    for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
-        (void)hal_usart_rx_get(&buf[i]);
-    }
-    uint16_t n = AT_FRAME_HEADER_SIZE;
-    while (n < total_len) {
-#ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();
-#endif
-        if (hal_usart_rx_get(&buf[n])) {
-            n++;
-            start = hal_timer_get_ms();
-        } else if (hal_timer_expired(start, timeout_ms)) {
-            at_frame_last_fail_stage = 6U;
-            at_frame_last_buf_bytes = hal_usart_rx_avail();
-            /* Payload stalled mid-frame. Drop everything so retry starts clean. */
-            hal_usart_rx_clear();
+    if (!blocking) {
+        /* All-or-nothing consume: only take the frame when the ring already
+         * holds every byte of it (header + payload start at the read pointer).
+         * A partial frame is left untouched for the next poll, which re-runs
+         * the header checks above — no half-consumed state exists. */
+        if (hal_usart_rx_avail() < total_len) {
             return 0U;
+        }
+        for (uint16_t i = 0U; i < total_len; i++) {
+            (void)hal_usart_rx_get(&buf[i]);
+        }
+    } else {
+        /* Consume the frame: drain the header we already peeked, then the payload. */
+        for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
+            (void)hal_usart_rx_get(&buf[i]);
+        }
+        uint16_t n = AT_FRAME_HEADER_SIZE;
+        while (n < total_len) {
+#ifndef BL_NO_WWDGT
+            hal_wwdgt_feed();
+#endif
+            if (hal_usart_rx_get(&buf[n])) {
+                n++;
+                start = hal_timer_get_ms();
+            } else if (hal_timer_expired(start, timeout_ms)) {
+                at_frame_last_fail_stage = 6U;
+                at_frame_last_buf_bytes = hal_usart_rx_avail();
+                /* Payload stalled mid-frame. Drop everything so retry starts clean. */
+                hal_usart_rx_clear();
+                return 0U;
+            }
         }
     }
 
@@ -244,5 +279,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
      * HIL commands don't get blocked behind stale data. Production-safe
      * because the glasses (per protocol) only sends one RSP per REQ. */
     hal_usart_rx_clear();
-    return n;
+    return total_len;
+}
+
+uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode)
+{
+    return at_frame_core(buf, buf_max, timeout_ms, expected_opcode, true);
+}
+
+uint16_t at_frame_try(uint8_t *buf, uint16_t buf_max, uint16_t expected_opcode)
+{
+    return at_frame_core(buf, buf_max, 0U, expected_opcode, false);
 }

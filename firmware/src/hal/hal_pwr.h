@@ -17,6 +17,12 @@ void hal_pwr_enter_charge(void);
  * path. UART traffic is valid once this returns. */
 void hal_pwr_enter_comm(void);
 
+/* The switching half of hal_pwr_enter_comm WITHOUT the internal 100ms
+ * discharge: enable the 1.8V LDO and steer the switch to the UART path in one
+ * non-waiting step. Only for callers that have already bled the bus for at
+ * least the 100ms spec floor (hal_pwr_discharge / a timed engine phase). */
+void hal_pwr_enter_comm_switch(void);
+
 /* Briefly present 5V on the POGO pin for ms milliseconds (the handshake wake
  * pulse), then restore the previous mode. */
 void hal_pwr_pulse_charge(uint32_t ms);

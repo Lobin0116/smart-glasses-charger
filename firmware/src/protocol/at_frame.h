@@ -55,4 +55,15 @@ at_status at_frame_parse(
  * Pass 0 to accept any opcode (legacy behaviour). */
 uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode);
 
+/* Non-blocking flavor of at_frame_recv with identical hunting/parsing
+ * semantics: consume non-magic lead bytes, peek the header, apply the magic/
+ * size checks and the opcode filter, and consume the frame only when the ring
+ * already holds ALL of it. If a complete valid frame is not available yet,
+ * return 0 immediately WITHOUT touching the ring (no waiting, no timeout) —
+ * the caller polls again later. Hard failures (bogus magic word, oversized
+ * frame) are diagnosed and cleaned up exactly like at_frame_recv; on opcode
+ * mismatch the frame is left unconsumed and 0 is returned, mirroring recv.
+ * Pairs with the non-blocking POGO transaction engine in charge_flow.c. */
+uint16_t at_frame_try(uint8_t *buf, uint16_t buf_max, uint16_t expected_opcode);
+
 #endif /* AT_FRAME_H */

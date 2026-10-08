@@ -46,8 +46,15 @@ void hal_pwr_enter_comm(void)
     hal_rpd_enable();
     hal_timer_delay_ms(HAL_PWR_DISCHARGE_MS);
     hal_rpd_disable();
+    hal_pwr_enter_comm_switch();
+}
 
-    /* Energise the 1.8V LDO, then steer the switch. IN rises last so the UART
+void hal_pwr_enter_comm_switch(void)
+{
+    /* The switching half of hal_pwr_enter_comm WITHOUT the internal discharge:
+     * callers that already ran their own timed discharge (the non-blocking POGO
+     * engine in charge_flow.c) use this to avoid a second blocking 100ms bleed.
+     * Energise the 1.8V LDO, then steer the switch. IN rises last so the UART
      * pad is driven only after the rail has settled. */
     hal_1v8_enable();
     hal_pogo_in_set(true);
