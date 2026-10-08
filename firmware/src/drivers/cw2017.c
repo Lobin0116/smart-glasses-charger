@@ -70,7 +70,8 @@ static bool soc_valid;
  * hammered. The retry is wrapped with watchdog feeds: the profile re-burn
  * path can block ~250 ms, past the 20 ms WWDGT window. */
 #define CW2017_RETRY_FAILS      4U
-#define CW2017_RETRY_COOLDOWN_MS 30000U
+#define CW2017_RETRY_COOLDOWN_MS        30000U
+#define CW2017_RETRY_COOLDOWN_EARLY_MS  5000U /* while no valid read yet */
 static uint8_t retry_fails;
 static uint32_t last_retry_ms;
 
@@ -145,6 +146,19 @@ static bool cw2017_verify_profile(void)
 
 int cw2017_init(void)
 {
+    /* Presence probe (address-only write): while the IP5353 holds the shared
+     * bus during its post-attach window — its SCL/SDA pins are the LED1/LED2
+     * pins it drives itself — every transaction below pays the 100 ms timeout
+     * + 9-clock recovery, and a full verify/burn (~160 transactions) stretches
+     * to tens of seconds with the main loop blocked (bench 2026-10-08: ~25 s
+     * dead button after battery insert). Bail after ONE bounded transaction
+     * instead; the self-heal retry completes the bring-up once the bus
+     * releases. On a healthy bus the probe is one sub-millisecond frame and
+     * everything downstream behaves exactly as before. */
+    if (hal_i2c_write(CW2017_I2C_ADDR, NULL, 0U) != 0) {
+        return -1;
+    }
+
     /* Auto-burn check (Cellwise demo `cw_init`):
      *  - First boot or after profile loss: MODE != NORMAL or UPDATE_FLAG clear.
      *  - Otherwise read back the profile and re-burn if it drifted.
@@ -192,7 +206,12 @@ static void cw2017_retry_heal(void)
         return;
     }
     uint32_t now = hal_timer_get_ms();
-    if (!hal_timer_expired(last_retry_ms, CW2017_RETRY_COOLDOWN_MS)) {
+    /* Before the FIRST valid reading ever arrives, retry aggressively (5 s):
+     * that is exactly the boot window where the shared bus may still be held
+     * by the IP5353 and the user is waiting for the case to come alive.
+     * Afterwards fall back to the conservative 30 s cadence. */
+    uint32_t cooldown = soc_valid ? CW2017_RETRY_COOLDOWN_MS : CW2017_RETRY_COOLDOWN_EARLY_MS;
+    if (!hal_timer_expired(last_retry_ms, cooldown)) {
         return;
     }
     last_retry_ms = now;
