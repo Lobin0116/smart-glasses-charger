@@ -11,8 +11,7 @@ static uint8_t btn_case_soc;
 
 void button_set_case_soc(uint8_t soc) { btn_case_soc = soc; }
 
-#define DEBOUNCE_MS    50U
-#define SHORT_PRESS_MS 2000U
+#define DEBOUNCE_MS 50U
 
 typedef enum
 {
@@ -54,7 +53,16 @@ void button_poll(void)
         case BTN_DEBOUNCE:
             if (hal_timer_expired(btn_press_ms, DEBOUNCE_MS)) {
                 if (hal_key_pressed()) {
+                    /* Press-triggered feedback (user decision 2026-10-08):
+                     * light the battery display the moment the press is
+                     * confirmed instead of waiting for release. The old
+                     * release-triggered design (plus the >=2 s hold gate)
+                     * made a press vanish entirely whenever the main loop
+                     * was slow to poll — e.g. during the ~1.7 s blocking
+                     * handshake cadence, which read as a dead button. The
+                     * display carries its own 7 s expiry. */
                     btn_state = BTN_PRESSED;
+                    led_effect_show_battery(&g_led_ctx, btn_case_soc);
                 } else {
                     btn_state = BTN_IDLE;
                 }
@@ -63,10 +71,6 @@ void button_poll(void)
 
         case BTN_PRESSED:
             if (!hal_key_pressed()) {
-                uint32_t held = hal_timer_elapsed(btn_press_ms);
-                if (held < SHORT_PRESS_MS) {
-                    led_effect_show_battery(&g_led_ctx, btn_case_soc);
-                }
                 btn_state = BTN_IDLE;
             }
             break;
