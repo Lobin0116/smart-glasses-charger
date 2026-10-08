@@ -4,6 +4,7 @@
 #include "gd32e23x.h"
 #include "hal_i2c.h"
 #include "hal_timer.h"
+#include "hal_wwdgt.h"
 
 /* 200 kHz standard mode: well within the 400 kHz both the CW2017 and IP5353
  * tolerate, and slow enough to keep rise-time margins comfortable on the onboard
@@ -19,6 +20,13 @@ static bool hal_i2c_wait_flag(i2c_flag_enum flag, FlagStatus expected)
 {
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) != expected) {
+        /* Feed the WWDGT inside the spin: a stalled bus (e.g. the IP5353
+         * driving its LED1/LED2-muxed SCL/SDA pins during its ~25 s
+         * post-attach window) parks us here for the full 100 ms timeout,
+         * five times past the 20 ms watchdog window — without this feed the
+         * MCU reset-loops for the whole window and the case looks dead
+         * (bench 2026-10-08: ~25 s dead button after battery insert). */
+        hal_wwdgt_feed();
         if (hal_timer_expired(start, HAL_I2C_TIMEOUT_MS)) {
             return false;
         }
@@ -32,6 +40,7 @@ static bool hal_i2c_wait_or_err(i2c_flag_enum flag)
 {
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) == RESET) {
+        hal_wwdgt_feed(); /* same stall-window reasoning as hal_i2c_wait_flag */
         if (i2c_flag_get(I2C0, I2C_FLAG_AERR) == SET) {
             i2c_flag_clear(I2C0, I2C_FLAG_AERR);
             return false;
