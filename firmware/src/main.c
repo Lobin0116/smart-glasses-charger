@@ -241,7 +241,44 @@ int main(void)
          * goes to standby (INT high-Z, pulled low). Any later standby→work
          * transition is a rising edge the dual-edge EXTI already latches. */
         if (sm_can_sleep(&sm) && exti_pending == 0U && !hal_charger_int_get()) {
+            hal_led_blue_off();
             pm_enter_deep_sleep();
+        }
+
+        /* TEMPORARY DIAGNOSTIC (bench 2026-10-08, remove after the 15 s
+         * awake-after-battery-insert hunt): whenever the case is NOT entering
+         * Deep-Sleep, blink the (otherwise unused) blue LED to encode the
+         * blocking gate — N blinks per 2 s cycle:
+         *   1 = state machine not in IDLE (e.g. HANDSHAKING/FORCE window)
+         *   2 = an LED effect is active (breath/solid/overlay residue)
+         *   3 = button state machine busy (KEY line held low?)
+         *   4 = exti_pending stuck (noisy EXTI source)
+         *   5 = CHAGER_INT high (IP5353 work mode)
+         *   6 = all gates pass yet awake (unexpected — report if seen)
+         * Re-asserted every loop pass so an effect's led_all_off() can only
+         * squash it for one pass (invisible). Blue is not used by any effect. */
+        {
+            uint8_t diag_reason;
+            if (sm.state != ST_IDLE) {
+                diag_reason = 1U;
+            } else if (g_led_ctx.current != LED_EFFECT_NONE || g_led_ctx.overlay != LED_EFFECT_NONE) {
+                diag_reason = 2U;
+            } else if (button_is_busy()) {
+                diag_reason = 3U;
+            } else if (exti_pending != 0U) {
+                diag_reason = 4U;
+            } else if (hal_charger_int_get()) {
+                diag_reason = 5U;
+            } else {
+                diag_reason = 6U;
+            }
+            uint32_t diag_phase = hal_timer_get_ms() % 2000U;
+            uint8_t diag_slot = (uint8_t)(diag_phase / 200U); /* 0..9 */
+            if (diag_slot < diag_reason && (diag_phase % 200U) < 100U) {
+                hal_led_blue_on();
+            } else {
+                hal_led_blue_off();
+            }
         }
 #endif
     }
