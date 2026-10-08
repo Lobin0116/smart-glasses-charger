@@ -67,8 +67,20 @@
     (SM_HANDSHAKE_5V_PULSE_MS + SM_HANDSHAKE_DISCHARGE_MS + (SM_HANDSHAKE_HB_GAP_MS * (SM_HANDSHAKE_HB_RETRIES - 1U)))
 
 /* Timestamp of the last paced action within the current state. Reset on every
- * transition so each state paces its first action from its own entry. */
+ * transition so each state paces its first action from its own entry. In
+ * HANDSHAKING it holds the last attempt's COMPLETION time (the pacing keeps
+ * attempts SM_HANDSHAKE_ATTEMPT_GAP_MS apart, completion to next start). */
 static uint32_t sm_last_action_ms;
+
+/* Marks a POGO transaction started by a state tick that has not been evaluated
+ * yet (still running, or finished within the last tick). Cleared by the state
+ * that observes !pogo_busy(), after consuming pogo_done_ok()/pogo_reply().
+ * A state transition (lid re-handshake, HIL RESET, ...) clears the flag: the
+ * engine still runs to completion and restores the charge rail, but the reply
+ * belongs to the state that requested it — the new state paces its own
+ * exchange, exactly what the old blocking flow did (it could not observe the
+ * lid until the burst was over, then re-ran the exchange from scratch). */
+static bool pogo_inflight;
 
 /* State to resume when OTA completes. */
 static sm_state_t sm_prev_state;
@@ -82,6 +94,10 @@ static void sm_enter_state(sm_ctx_t *ctx, sm_state_t next)
     ctx->state_enter_ms = hal_timer_get_ms();
     ctx->retry_count = 0U;
     sm_last_action_ms = ctx->state_enter_ms;
+    /* Any in-flight POGO transaction keeps running (the rail must be
+     * restored), but its reply no longer belongs to anyone — see
+     * pogo_inflight. */
+    pogo_inflight = false;
 }
 
 /* Hardware actions are implemented in charge_flow.c. */
@@ -101,36 +117,97 @@ static void sm_goto_idle(sm_ctx_t *ctx)
     sm_enter_state(ctx, ST_IDLE);
 }
 
+/* Handshake window expired without a successful exchange. R2 option A: no
+ * exchange has EVER succeeded since boot → the glasses were never on the
+ * pins; the 9-minute blind-force window would only burn battery (review:
+ * "开机无眼镜都进行心跳，长充"). Cases that have talked to glasses before
+ * keep the force window. */
+static void sm_handshake_give_up(sm_ctx_t *ctx)
+{
+    if (ctx->case_soc > SM_STOP_CHARGE_SOC_PCT && ctx->saw_glass_once) {
+        sm_enter_state(ctx, ST_FORCE_CHARGING);
+    } else {
+        sm_goto_idle(ctx);
+    }
+}
+
 static void sm_tick_handshaking(sm_ctx_t *ctx, uint32_t now)
 {
+    /* An attempt runs in the shared POGO engine; sm_tick() advanced it one
+     * phase at the top of this call. Wait for completion before pacing the
+     * next attempt or evaluating the timeout — the old blocking burst had the
+     * same property (nothing was evaluated mid-exchange). */
+    if (pogo_busy()) {
+        return;
+    }
+
+    if (pogo_inflight) {
+        /* Attempt finished: pace the NEXT attempt from this completion time. */
+        pogo_inflight = false;
+        sm_last_action_ms = now;
+
+        if (pogo_done_ok()) {
+            const at_glass_data *reply = pogo_reply();
+            ctx->glass_soc = reply->glass_soc & 0x7FU;
+            ctx->glass_full = (reply->glass_soc & 0x80U) != 0U;
+            ctx->glass_present = true;
+            ctx->saw_glass_once = true;
+            ctx->last_comms_ms = now;
+            sm_enter_state(ctx, ctx->case_soc > SM_STOP_CHARGE_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
+            return;
+        }
+
+        /* Burst failed: no glasses answered (mirrors sm_do_handshake's
+         * failure path clearing glass_present). */
+        ctx->glass_present = false;
+        if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
+            sm_handshake_give_up(ctx);
+        }
+        return;
+    }
+
     if (!hal_timer_expired(sm_last_action_ms, SM_HANDSHAKE_ATTEMPT_GAP_MS)) {
         return;
     }
-    sm_last_action_ms = now;
-
-    if (sm_do_handshake(ctx)) {
-        ctx->glass_present = true;
-        ctx->saw_glass_once = true;
-        ctx->last_comms_ms = now;
-        sm_enter_state(ctx, ctx->case_soc > SM_STOP_CHARGE_SOC_PCT ? ST_CHARGING : ST_MAINTAINING);
+    if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
+        sm_handshake_give_up(ctx);
         return;
     }
 
-    if (hal_timer_expired(ctx->state_enter_ms, SM_HANDSHAKE_TIMEOUT_MS)) {
-        /* R2 option A: no exchange has EVER succeeded since boot → the
-         * glasses were never on the pins; the 9-minute blind-force window
-         * would only burn battery (review: "开机无眼镜都进行心跳，长充").
-         * Cases that have talked to glasses before keep the force window. */
-        if (ctx->case_soc > SM_STOP_CHARGE_SOC_PCT && ctx->saw_glass_once) {
-            sm_enter_state(ctx, ST_FORCE_CHARGING);
-        } else {
-            sm_goto_idle(ctx);
-        }
-    }
+    pogo_start(ctx, true, SM_HANDSHAKE_HB_RETRIES);
+    pogo_inflight = true;
 }
 
 static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
 {
+    /* A charge poll runs in the POGO engine (advanced once at the top of
+     * sm_tick). Hold every other check until it completes: the OTA and
+     * SHUTTING_DOWN paths would fight the engine for the same UART, and the
+     * NTC stop path's hal_pwr_idle() would be overridden by the engine's
+     * rail-restore phase. The deferral is bounded by the transaction length
+     * (~205 ms) — the same window the old blocking poll already cost — while
+     * button/LED/SOC refresh keep running in the main loop, which is the
+     * point of the refactor. */
+    if (pogo_busy()) {
+        return;
+    }
+
+    if (pogo_inflight) {
+        pogo_inflight = false;
+        if (pogo_done_ok()) {
+            /* Mirror of the old sm_do_charge_poll success handling: refresh
+             * glass SOC/full from the reply; glass_present is not touched on
+             * either outcome. The glass_full/OTA transitions below evaluate
+             * on the NEXT tick — the old flow also returned from the poll
+             * before any transition check ran. */
+            const at_glass_data *reply = pogo_reply();
+            ctx->glass_soc = reply->glass_soc & 0x7FU;
+            ctx->glass_full = (reply->glass_soc & 0x80U) != 0U;
+            ctx->last_comms_ms = now;
+        }
+        return;
+    }
+
     /* Version mismatch with what the glasses holds → request OTA.
      * Skip when glasses hasn't reported a version (0) to avoid spurious trigger. */
     if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
@@ -169,13 +246,28 @@ static void sm_tick_charging(sm_ctx_t *ctx, uint32_t now)
     }
     sm_last_action_ms = now;
 
-    if (sm_do_charge_poll(ctx)) {
-        ctx->last_comms_ms = now;
-    }
+    pogo_start(ctx, false, 1U);
+    pogo_inflight = true;
 }
 
 static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
 {
+    /* Keep-alive heartbeat runs in the POGO engine; defer every other check
+     * until it completes (~205 ms), same rationale as sm_tick_charging. */
+    if (pogo_busy()) {
+        return;
+    }
+
+    if (pogo_inflight) {
+        pogo_inflight = false;
+        if (pogo_done_ok()) {
+            /* The old sm_do_maintain_heartbeat parsed the reply but discarded
+             * it — only liveness is tracked here. Mirrored exactly. */
+            ctx->last_comms_ms = now;
+        }
+        return;
+    }
+
     if (ctx->reported_case_version != CASE_FW_VERSION && ctx->reported_case_version != 0U) {
         ctx->ota_requested = true;
     }
@@ -204,13 +296,35 @@ static void sm_tick_maintaining(sm_ctx_t *ctx, uint32_t now)
     }
     sm_last_action_ms = now;
 
-    if (sm_do_maintain_heartbeat(ctx)) {
-        ctx->last_comms_ms = now;
-    }
+    pogo_start(ctx, false, 1U);
+    pogo_inflight = true;
 }
 
 static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
 {
+    /* Probe (5V pulse + heartbeat) runs in the POGO engine; the 9-minute
+     * give-up check defers to completion, same rationale as sm_tick_charging. */
+    if (pogo_busy()) {
+        return;
+    }
+
+    if (pogo_inflight) {
+        pogo_inflight = false;
+        if (pogo_done_ok()) {
+            /* Mirror of the old sm_do_force_charge_probe success handling. */
+            const at_glass_data *reply = pogo_reply();
+            ctx->glass_soc = reply->glass_soc & 0x7FU;
+            ctx->glass_full = (reply->glass_soc & 0x80U) != 0U;
+            ctx->glass_present = true;
+            ctx->saw_glass_once = true;
+            ctx->last_comms_ms = now;
+            sm_enter_state(ctx, ST_CHARGING);
+            return;
+        }
+        /* Failed probe: stay in the window; the next probe follows the gap. */
+        return;
+    }
+
     /* After the 9-minute window, give up and go back to sleep. */
     if (hal_timer_expired(ctx->state_enter_ms, SM_FORCE_TIMEOUT_MS)) {
         sm_goto_idle(ctx);
@@ -221,12 +335,8 @@ static void sm_tick_force_charging(sm_ctx_t *ctx, uint32_t now)
     }
     sm_last_action_ms = now;
 
-    if (sm_do_force_charge_probe(ctx)) {
-        ctx->glass_present = true;
-        ctx->saw_glass_once = true;
-        ctx->last_comms_ms = now;
-        sm_enter_state(ctx, ST_CHARGING);
-    }
+    pogo_start(ctx, true, 1U);
+    pogo_inflight = true;
 }
 
 static void sm_tick_shutting_down(sm_ctx_t *ctx, uint32_t now)
@@ -299,6 +409,7 @@ void sm_init(sm_ctx_t *ctx)
 
     sm_last_action_ms = now;
     sm_prev_state = ST_IDLE;
+    pogo_inflight = false;
     /* Seed lid_open=false so the first sm_tick samples hal_hall_get() and,
      * if the lid is open at boot, detects a real false→true transition and
      * runs the open path (HANDSHAKING + show_battery). If the lid is closed
@@ -313,18 +424,26 @@ void sm_tick(sm_ctx_t *ctx)
 {
     uint32_t now = hal_timer_get_ms();
 
+    /* Advance an in-flight POGO transaction by at most one phase per tick —
+     * the engine (charge_flow.c) never blocks, so no sm_tick call stalls on
+     * the comm window any more. Driving it here, ahead of the HALL sampling
+     * and the state switch, keeps the exchange moving and the rail restore
+     * prompt even across mid-transaction state transitions. */
+    if (pogo_busy()) {
+        pogo_tick(ctx);
+    }
+
     /* Poll HALL level and dispatch on change. This runs BEFORE the state-
-     * specific tick (which may block in sm_do_handshake for ~1.1 s), so a
-     * lid transition that arrived during sleep is observed and handled on
-     * the first post-wake sm_tick. No EXTI event queue, no debounce, no
-     * sm_handle_event: the Schmitt-trigger HALL output is a clean level, we
-     * just sample it each tick.
+     * specific tick, so a lid transition that arrived during sleep is
+     * observed and handled on the first post-wake sm_tick. No EXTI event
+     * queue, no debounce, no sm_handle_event: the Schmitt-trigger HALL output
+     * is a clean level, we just sample it each tick.
      *
      * The level compare alone misses the case where the magnet did a full
-     * close+open round-trip INSIDE one handshake burst — the level ends up
+     * close+open round-trip INSIDE one heartbeat burst — the level ends up
      * where it started, so `now_open == ctx->lid_open`, but the user very
      * much actuated the lid. The ISR sets hall_edge_seen on every HALL edge
-     * (it can fire during the handshake block), so we also force the open
+     * (it can fire during a POGO transaction), so we also force the open
      * path to re-run when an edge was seen, regardless of level delta. */
     bool now_open = hal_hall_get();
     if (ctx->hall_edge_seen || now_open != ctx->lid_open) {
