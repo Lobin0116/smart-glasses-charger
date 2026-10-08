@@ -165,7 +165,13 @@ void board_init(void)
     hal_exti_register_callback(exti_callback);
     hal_wwdgt_init(20);
     led_init();
-    cw2017_init();
+    /* cw2017_init deliberately NOT here: the battery-rail gate opens later
+     * in main(), so an IP5353 held dark at this point can clamp SDA low and
+     * turn every transaction into a 100 ms timeout + bus-recover cycle —
+     * the ~15 s boot stall seen on battery insert (bench 2026-10-08: main
+     * loop never ran, blue sleep-diag silent, presses eaten by the boot
+     * edge-clear). The one bring-up call in main() after the rails are live
+     * is the survivor; the driver's self-heal retry covers later hiccups. */
 }
 
 int main(void)
