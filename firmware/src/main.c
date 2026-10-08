@@ -108,12 +108,36 @@ static void refresh_case_status(void)
     bool input_valid = ip5353_is_input_valid();
     bool full = ip5353_is_full();
 
+    /* Rising-edge debounce for the combined "case busy" flag: during the
+     * IP5353's post-battery-attach work window (~15 s bench-measured) its
+     * status registers transiently read as charging/input-valid, which lit
+     * the green breath on a plain battery insert and — worse — kept an LED
+     * effect alive, blocking Deep-Sleep for the whole window (blue-diag
+     * code 2, bench 2026-10-08). Real charging/input is persistent, so
+     * require two consecutive polls (~1 s) before believing a rising edge;
+     * the falling edge stays immediate so UX and sleep release at once. */
+    static bool case_busy_latched;
+    static uint8_t case_busy_strikes;
+    bool case_busy = charging || input_valid;
+    if (case_busy) {
+        if (case_busy_strikes < 2U) {
+            case_busy_strikes++;
+        }
+        if (case_busy_strikes >= 2U) {
+            case_busy_latched = true;
+        }
+    } else {
+        case_busy_strikes = 0U;
+        case_busy_latched = false;
+    }
+
     /* Boost handover: while the IP5353 actually charges (VIN plugged) it owns
      * the 5V path — drop the MT3608L so the two never fight and no boost
      * current is wasted. Reads failing (IP5353 unreachable / protection
      * mode) report charging=false, keeping the boost on: that is exactly the
-     * battery-only case the boost exists for. */
-    if (charging) {
+     * battery-only case the boost exists for. The debounced flag is used
+     * deliberately: the boost should not hiccup on the same attach glitch. */
+    if (case_busy_latched) {
         hal_boost_5v_disable();
     } else {
         hal_boost_5v_enable();
@@ -123,7 +147,7 @@ static void refresh_case_status(void)
      * chip only ACKs while a coil field powers it). */
     (void)nu1671_poll();
 
-    led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
+    led_effect_set_case_info(&g_led_ctx, soc, case_busy_latched, full);
     /* Glasses-side status is not polled here — it comes from the heartbeat
      * replies that update sm.glass_soc/glass_full — but this is the single
      * 500 ms point where the LED layer gets refreshed, so feed it here too
