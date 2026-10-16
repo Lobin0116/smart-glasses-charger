@@ -3,6 +3,7 @@
 #include "at_frame.h"
 #include "at_opcode.h"
 #include "at_types.h"
+#include "hal_gpio.h"
 #include "hal_pwr.h"
 #include "hal_timer.h"
 #include "hal_usart.h"
@@ -23,11 +24,43 @@ uint8_t sm_build_case_sta_byte(bool lid_open, bool ota_requested)
     }
     return sta;
 }
+typedef enum
+{
+    PG_IDLE,
+    PG_PULSE,
+    PG_DISCHARGE,
+    PG_COMM,
+    PG_HB_SEND,
+    PG_HB_WAIT,
+    PG_HB_GAP,
+    PG_RESTORE,
+} pogo_phase_t;
 
-static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply)
+static pogo_phase_t pg_phase;
+static uint32_t pg_phase_start;
+static uint8_t pg_hb_total;
+static uint8_t pg_hb_attempts;
+static bool pg_ok;
+static at_glass_data pg_reply;
+
+static void pogo_enter(pogo_phase_t phase)
+{
+    pg_phase = phase;
+    pg_phase_start = hal_timer_get_ms();
+}
+
+static void pogo_attempt_failed(void)
+{
+    if (pg_hb_attempts < pg_hb_total) {
+        pogo_enter(PG_HB_GAP);
+    } else {
+        pogo_enter(PG_RESTORE);
+    }
+}
+
+static void pogo_send_heartbeat(sm_ctx_t *ctx)
 {
     uint8_t buf[64];
-    uint8_t rsp[64];
 
     at_case_data payload = {
         .role = {.des = AT_CASE_ROLE_GLASS, .src = AT_CASE_ROLE_CASE},
@@ -36,101 +69,129 @@ static bool sm_send_heartbeat(sm_ctx_t *ctx, at_glass_data *reply)
     };
 
     uint16_t frame_len = at_frame_pack_request(buf, AT_OPCODE_CASE_HEART, (uint8_t *)&payload, sizeof(payload), 0x00);
-
     hal_usart_send(buf, frame_len);
-    uint16_t rsp_len = at_frame_recv(rsp, sizeof(rsp), COMM_TIMEOUT_MS, AT_OPCODE_CASE_HEART);
-    if (rsp_len == 0U) {
-        return false;
-    }
+}
 
+static bool pogo_parse_reply(uint8_t *rsp, uint16_t rsp_len)
+{
     uint16_t opcode;
     uint8_t status;
-    uint8_t rsp_payload[64];
-    uint8_t rsp_payload_len;
-    int rc = at_frame_parse(rsp, rsp_len, &opcode, &status, rsp_payload, &rsp_payload_len);
-    if (rc != AT_SUCCESS || opcode != AT_OPCODE_CASE_HEART) {
+    uint8_t payload[64];
+    uint8_t payload_len;
+    if (at_frame_parse(rsp, rsp_len, &opcode, &status, payload, &payload_len) != AT_SUCCESS
+        || opcode != AT_OPCODE_CASE_HEART) {
         return false;
     }
 
-    if (rsp_payload_len >= sizeof(at_glass_data)) {
-        at_glass_data *gd = (at_glass_data *)rsp_payload;
-        *reply = *gd;
+    if (payload_len >= sizeof(at_glass_data)) {
+        pg_reply = *(at_glass_data *)payload;
         return true;
     }
     return false;
 }
 
-bool sm_do_handshake(sm_ctx_t *ctx)
+void pogo_start(sm_ctx_t *ctx, bool pulse, uint8_t hb_retries)
 {
-    hal_pwr_pulse_charge(HANDSHAKE_5V_MS);
-    hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
-    hal_pwr_enter_comm();
+    (void)ctx;
+    pg_hb_total = hb_retries;
+    pg_hb_attempts = 0U;
+    pg_ok = false;
 
-    bool ok = false;
-    for (uint8_t i = 0U; i < HANDSHAKE_RETRY_COUNT; i++) {
-        at_glass_data reply;
-        if (sm_send_heartbeat(ctx, &reply)) {
-            ctx->glass_soc = reply.glass_soc & 0x7FU;
-            ctx->glass_full = (reply.glass_soc & 0x80U) != 0U;
-            ctx->glass_present = true;
-            ok = true;
+    if (pulse) {
+
+        hal_pwr_enter_charge();
+        pogo_enter(PG_PULSE);
+    } else {
+
+        hal_rpd_enable();
+        pogo_enter(PG_DISCHARGE);
+    }
+}
+
+void pogo_tick(sm_ctx_t *ctx)
+{
+    switch (pg_phase) {
+        case PG_IDLE:
+            break;
+
+        case PG_PULSE:
+            if (!hal_timer_expired(pg_phase_start, HANDSHAKE_5V_MS)) {
+                break;
+            }
+            hal_rpd_enable();
+            pogo_enter(PG_DISCHARGE);
+            break;
+
+        case PG_DISCHARGE:
+            if (!hal_timer_expired(pg_phase_start, HANDSHAKE_DISCHARGE_MS)) {
+                break;
+            }
+            hal_rpd_disable();
+            pogo_enter(PG_COMM);
+            break;
+
+        case PG_COMM:
+
+            hal_pwr_enter_comm_switch();
+            pogo_enter(PG_HB_SEND);
+            break;
+
+        case PG_HB_SEND:
+            pogo_send_heartbeat(ctx);
+            pg_hb_attempts++;
+            pogo_enter(PG_HB_WAIT);
+            break;
+
+        case PG_HB_WAIT: {
+            uint8_t rsp[64];
+            uint16_t rsp_len = at_frame_try(rsp, sizeof(rsp), AT_OPCODE_CASE_HEART);
+            if (rsp_len > 0U) {
+                if (pogo_parse_reply(rsp, rsp_len)) {
+                    pg_ok = true;
+                    pogo_enter(PG_RESTORE);
+                } else {
+
+                    pogo_attempt_failed();
+                }
+                break;
+            }
+            if (!hal_timer_expired(pg_phase_start, COMM_TIMEOUT_MS)) {
+                break;
+            }
+
+            hal_usart_rx_clear();
+            pogo_attempt_failed();
             break;
         }
-        hal_timer_delay_ms(HANDSHAKE_RETRY_INTERVAL_MS);
+
+        case PG_HB_GAP:
+            if (!hal_timer_expired(pg_phase_start, HANDSHAKE_RETRY_INTERVAL_MS)) {
+                break;
+            }
+            pogo_enter(PG_HB_SEND);
+            break;
+
+        case PG_RESTORE:
+
+            hal_pwr_enter_charge();
+            pogo_enter(PG_IDLE);
+            break;
     }
-    if (!ok) {
-        ctx->glass_present = false;
-    }
-    hal_pwr_enter_charge();
-    return ok;
 }
 
-bool sm_do_charge_poll(sm_ctx_t *ctx)
+bool pogo_busy(void)
 {
-    hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
-    hal_pwr_enter_comm();
-
-    at_glass_data reply;
-    bool ok = false;
-    if (sm_send_heartbeat(ctx, &reply)) {
-        ctx->glass_soc = reply.glass_soc & 0x7FU;
-        ctx->glass_full = (reply.glass_soc & 0x80U) != 0U;
-        ok = true;
-    }
-
-    hal_pwr_enter_charge();
-    return ok;
+    return pg_phase != PG_IDLE;
 }
 
-bool sm_do_maintain_heartbeat(sm_ctx_t *ctx)
+bool pogo_done_ok(void)
 {
-
-    hal_pwr_enter_comm();
-    at_glass_data reply;
-    bool ok = sm_send_heartbeat(ctx, &reply);
-
-    hal_pwr_enter_charge();
-    return ok;
+    return pg_ok;
 }
 
-bool sm_do_force_charge_probe(sm_ctx_t *ctx)
+const at_glass_data *pogo_reply(void)
 {
-    hal_pwr_enter_charge();
-    hal_timer_delay_ms(HANDSHAKE_5V_MS);
-    hal_pwr_discharge(HANDSHAKE_DISCHARGE_MS);
-    hal_pwr_enter_comm();
-
-    at_glass_data reply;
-    bool ok = false;
-    if (sm_send_heartbeat(ctx, &reply)) {
-        ctx->glass_soc = reply.glass_soc & 0x7FU;
-        ctx->glass_full = (reply.glass_soc & 0x80U) != 0U;
-        ctx->glass_present = true;
-        ok = true;
-    }
-
-    hal_pwr_enter_charge();
-    return ok;
+    return &pg_reply;
 }
 
 bool sm_do_shutdown(void)

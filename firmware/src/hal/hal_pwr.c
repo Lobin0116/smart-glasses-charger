@@ -36,6 +36,11 @@ void hal_pwr_enter_comm(void)
     hal_rpd_enable();
     hal_timer_delay_ms(HAL_PWR_DISCHARGE_MS);
     hal_rpd_disable();
+    hal_pwr_enter_comm_switch();
+}
+
+void hal_pwr_enter_comm_switch(void)
+{
 
     hal_1v8_enable();
     hal_pogo_in_set(true);

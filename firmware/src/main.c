@@ -98,6 +98,8 @@ static void refresh_case_status(void)
     (void)nu1671_poll();
 
     led_effect_set_case_info(&g_led_ctx, soc, charging || input_valid, full);
+
+    led_effect_set_glass_info(&g_led_ctx, sm.glass_present, sm.glass_soc, sm.glass_full);
 }
 
 void board_init(void)
@@ -128,6 +130,7 @@ int main(void)
     hal_boost_5v_enable();
 
     hal_1v8_enable();
+    (void)cw2017_init();
 
     exti_pending = 0U;
 #ifdef HIL_TEST
@@ -172,6 +175,7 @@ int main(void)
         if (sm_can_sleep(&sm) && exti_pending == 0U && !hal_charger_int_get()) {
             pm_enter_deep_sleep();
         }
+
 #endif
     }
 }

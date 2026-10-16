@@ -6,7 +6,17 @@
 
 #define LED_FULL_SOLID_MS 7000U
 
-static led_color_t soc_to_color(uint8_t soc)
+#define LED_GLASS_FULL_MS 7000U
+
+static led_color_t case_soc_color(uint8_t soc)
+{
+    if (soc > 80U) {
+        return LED_GREEN;
+    }
+    return LED_ORANGE;
+}
+
+static led_color_t glass_soc_color(uint8_t soc)
 {
     if (soc > 40U) {
         return LED_WHITE;
@@ -17,20 +27,23 @@ static led_color_t soc_to_color(uint8_t soc)
     return LED_RED;
 }
 
-static void apply_effect(led_effect_id_t effect, uint8_t soc)
+static void apply_effect(led_effect_id_t effect, led_color_t color, uint8_t soc)
 {
     led_all_off();
     switch (effect) {
         case LED_EFFECT_CASE_CHARGING_BREATH:
         case LED_EFFECT_GLASS_CHARGING_BREATH:
-            led_set(soc_to_color(soc), LED_BREATH);
+            led_set(color, LED_BREATH);
+            break;
+        case LED_EFFECT_GLASS_FULL:
+            led_set(color, LED_ON);
             break;
         case LED_EFFECT_FULL_SOLID:
             led_set(LED_WHITE, LED_ON);
             break;
         case LED_EFFECT_BATTERY_DISPLAY:
 
-            led_set(soc_to_color(soc), (soc <= 5U) ? LED_BLINK : LED_ON);
+            led_set(color, (soc < 20U) ? LED_BLINK : LED_ON);
             break;
         default:
             break;
@@ -46,7 +59,15 @@ static led_effect_id_t resolve_effect(led_effect_ctx_t *ctx)
         }
         return LED_EFFECT_NONE;
     }
-    if (ctx->glass_charging) {
+
+    if (ctx->glass_present) {
+        if (ctx->glass_full) {
+
+            if (!hal_timer_expired(ctx->glass_full_start_ms, LED_GLASS_FULL_MS)) {
+                return LED_EFFECT_GLASS_FULL;
+            }
+            return LED_EFFECT_NONE;
+        }
         return LED_EFFECT_GLASS_CHARGING_BREATH;
     }
     if (ctx->case_charging) {
@@ -63,10 +84,12 @@ void led_effect_init(led_effect_ctx_t *ctx)
     ctx->overlay_duration_ms = 0U;
     ctx->case_soc = 0U;
     ctx->case_charging = false;
-    ctx->glass_charging = false;
     ctx->glass_full = false;
     ctx->case_full = false;
     ctx->full_solid_start_ms = 0U;
+    ctx->glass_soc = 0U;
+    ctx->glass_present = false;
+    ctx->glass_full_start_ms = 0U;
     led_all_off();
 }
 
@@ -81,11 +104,16 @@ void led_effect_set_case_info(led_effect_ctx_t *ctx, uint8_t soc, bool charging,
     }
 }
 
-void led_effect_set_glass_info(led_effect_ctx_t *ctx, bool charging, bool full)
+void led_effect_set_glass_info(led_effect_ctx_t *ctx, bool present, uint8_t soc, bool full)
 {
+    bool full_before = ctx->glass_full;
     bool both_before = ctx->case_full && ctx->glass_full;
-    ctx->glass_charging = charging;
+    ctx->glass_present = present;
+    ctx->glass_soc = soc;
     ctx->glass_full = full;
+    if (!full_before && ctx->glass_full) {
+        ctx->glass_full_start_ms = hal_timer_get_ms();
+    }
     if (!both_before && ctx->case_full && ctx->glass_full) {
         ctx->full_solid_start_ms = hal_timer_get_ms();
     }
@@ -118,7 +146,14 @@ void led_effect_poll(led_effect_ctx_t *ctx)
 
     if (target != ctx->current) {
         ctx->current = target;
-        apply_effect(target, ctx->case_soc);
+
+        uint8_t soc = ctx->case_soc;
+        led_color_t color = case_soc_color(soc);
+        if (target == LED_EFFECT_GLASS_FULL || target == LED_EFFECT_GLASS_CHARGING_BREATH) {
+            soc = ctx->glass_soc;
+            color = glass_soc_color(soc);
+        }
+        apply_effect(target, color, soc);
     }
 
     led_poll();

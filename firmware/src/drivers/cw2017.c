@@ -4,6 +4,7 @@
 
 #include "hal_i2c.h"
 #include "hal_timer.h"
+#include "hal_wwdgt.h"
 
 #define CW2017_I2C_ADDR 0x63U
 
@@ -16,8 +17,6 @@
 
 #define CW2017_CONFIG_QUICKSTART 0x30U
 #define CW2017_CONFIG_NORMAL 0x00U
-
-#define CW2017_CONFIG_SLEEP 0xC0U
 
 #define CW2017_SOC_ALERT_UPDATE_FLAG 0x80U
 #define CW2017_PROFILE_SIZE 80U
@@ -35,6 +34,14 @@ static const uint8_t cw2017_profile[CW2017_PROFILE_SIZE] = {
 };
 
 static int cw2017_read_soc(uint8_t *soc) { return hal_i2c_read_reg(CW2017_I2C_ADDR, CW2017_REG_SOC_H, soc, 1U); }
+
+static uint8_t last_soc;
+static bool soc_valid;
+#define CW2017_RETRY_FAILS 4U
+#define CW2017_RETRY_COOLDOWN_MS 30000U
+#define CW2017_RETRY_COOLDOWN_EARLY_MS 5000U
+static uint8_t retry_fails;
+static uint32_t last_retry_ms;
 
 static int cw2017_read_voltage_mv(uint16_t *mv)
 {
@@ -97,6 +104,9 @@ static bool cw2017_verify_profile(void)
 
 int cw2017_init(void)
 {
+    if (hal_i2c_write(CW2017_I2C_ADDR, NULL, 0U) != 0) {
+        return -1;
+    }
 
     uint8_t mode = 0U;
     uint8_t alert = 0U;
@@ -124,18 +134,41 @@ int cw2017_init(void)
     }
     return 0;
 }
+static void cw2017_retry_heal(void)
+{
+    retry_fails++;
+    if (retry_fails < CW2017_RETRY_FAILS) {
+        return;
+    }
+    uint32_t now = hal_timer_get_ms();
+
+    uint32_t cooldown = soc_valid ? CW2017_RETRY_COOLDOWN_MS : CW2017_RETRY_COOLDOWN_EARLY_MS;
+    if (!hal_timer_expired(last_retry_ms, cooldown)) {
+        return;
+    }
+    last_retry_ms = now;
+    retry_fails = 0U;
+    hal_wwdgt_feed();
+    (void)cw2017_init();
+    hal_wwdgt_feed();
+}
 
 uint8_t cw2017_get_soc(void)
 {
     uint8_t soc = 0U;
     if (cw2017_read_soc(&soc) != 0) {
+        cw2017_retry_heal();
 
-        return 100U;
+        return soc_valid ? last_soc : 100U;
     }
     if (soc == 0U || soc > 100U) {
+        cw2017_retry_heal();
 
-        return 100U;
+        return soc_valid ? last_soc : 100U;
     }
+    retry_fails = 0U;
+    last_soc = soc;
+    soc_valid = true;
     return soc;
 }
 
@@ -151,22 +184,6 @@ int8_t cw2017_get_temp_c(void)
     int8_t temp = 0;
     (void)cw2017_read_temp_c(&temp);
     return temp;
-}
-
-void cw2017_enter_sleep(void)
-{
-
-    uint8_t cfg = CW2017_CONFIG_SLEEP;
-    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
-}
-
-void cw2017_resume(void)
-{
-
-    uint8_t cfg = CW2017_CONFIG_QUICKSTART;
-    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
-    cfg = CW2017_CONFIG_NORMAL;
-    (void)hal_i2c_write_reg(CW2017_I2C_ADDR, CW2017_REG_CONFIG, &cfg, 1U);
 }
 
 int cw2017_get_status(cw2017_status_t *status)

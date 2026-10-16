@@ -74,6 +74,12 @@ void hal_gpio_init(void)
     gpio_mode_set(GPIOC, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_13);
 
     gpio_mode_set(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_3 | GPIO_PIN_4);
+    gpio_mode_set(GPIOA,
+                  GPIO_MODE_ANALOG,
+                  GPIO_PUPD_NONE,
+                  GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_11 | GPIO_PIN_12);
+    gpio_mode_set(GPIOC, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, GPIO_PIN_14 | GPIO_PIN_15);
+    gpio_mode_set(GPIOF, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, GPIO_PIN_0 | GPIO_PIN_1);
 
     gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLUP, GPIO_PIN_7 | GPIO_PIN_8);
 
@@ -200,7 +206,7 @@ void hal_5353_key_set(bool pressed) { hal_gpio_set(HAL_PIN_KEY5353, !pressed); }
 void hal_5353_key_release(void)
 {
 
-    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, HAL_KEY5353_PIN);
+    gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_PULLDOWN, HAL_KEY5353_PIN);
 }
 
 void hal_5353_key_rearm(void)

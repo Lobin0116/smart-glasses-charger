@@ -116,18 +116,22 @@ at_status at_frame_parse(
 
     return AT_SUCCESS;
 }
-
-uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode)
+static uint16_t at_frame_core(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode, bool blocking)
 {
     uint32_t start = hal_timer_get_ms();
     uint8_t c;
 
     while (true) {
 #ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();
+        if (blocking) {
+            hal_wwdgt_feed();
 
+        }
 #endif
         if (!hal_usart_rx_peek(&c)) {
+            if (!blocking) {
+                return 0U;
+            }
             if (hal_timer_expired(start, timeout_ms)) {
                 at_frame_last_fail_stage = 1U;
                 at_frame_last_buf_bytes = hal_usart_rx_avail();
@@ -144,10 +148,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     uint8_t header[AT_FRAME_HEADER_SIZE];
     while (true) {
 #ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();
+        if (blocking) {
+            hal_wwdgt_feed();
+        }
 #endif
         if (hal_usart_rx_peek_n(header, AT_FRAME_HEADER_SIZE)) {
             break;
+        }
+        if (!blocking) {
+            return 0U;
         }
         if (hal_timer_expired(start, timeout_ms)) {
             at_frame_last_fail_stage = 2U;
@@ -184,23 +193,34 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
         return 0U;
     }
 
-    for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
-        (void)hal_usart_rx_get(&buf[i]);
-    }
-    uint16_t n = AT_FRAME_HEADER_SIZE;
-    while (n < total_len) {
-#ifndef BL_NO_WWDGT
-        hal_wwdgt_feed();
-#endif
-        if (hal_usart_rx_get(&buf[n])) {
-            n++;
-            start = hal_timer_get_ms();
-        } else if (hal_timer_expired(start, timeout_ms)) {
-            at_frame_last_fail_stage = 6U;
-            at_frame_last_buf_bytes = hal_usart_rx_avail();
+    if (!blocking) {
 
-            hal_usart_rx_clear();
+        if (hal_usart_rx_avail() < total_len) {
             return 0U;
+        }
+        for (uint16_t i = 0U; i < total_len; i++) {
+            (void)hal_usart_rx_get(&buf[i]);
+        }
+    } else {
+
+        for (uint16_t i = 0U; i < AT_FRAME_HEADER_SIZE; i++) {
+            (void)hal_usart_rx_get(&buf[i]);
+        }
+        uint16_t n = AT_FRAME_HEADER_SIZE;
+        while (n < total_len) {
+#ifndef BL_NO_WWDGT
+            hal_wwdgt_feed();
+#endif
+            if (hal_usart_rx_get(&buf[n])) {
+                n++;
+                start = hal_timer_get_ms();
+            } else if (hal_timer_expired(start, timeout_ms)) {
+                at_frame_last_fail_stage = 6U;
+                at_frame_last_buf_bytes = hal_usart_rx_avail();
+
+                hal_usart_rx_clear();
+                return 0U;
+            }
         }
     }
 
@@ -208,5 +228,15 @@ uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint
     at_frame_last_buf_bytes = 0U;
 
     hal_usart_rx_clear();
-    return n;
+    return total_len;
+}
+
+uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode)
+{
+    return at_frame_core(buf, buf_max, timeout_ms, expected_opcode, true);
+}
+
+uint16_t at_frame_try(uint8_t *buf, uint16_t buf_max, uint16_t expected_opcode)
+{
+    return at_frame_core(buf, buf_max, 0U, expected_opcode, false);
 }

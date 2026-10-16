@@ -19,5 +19,6 @@ at_frame_pack_response(uint8_t *buf, uint16_t opcode, uint8_t status, const uint
 at_status at_frame_parse(
     const uint8_t *buf, uint16_t total_len, uint16_t *opcode, uint8_t *status, uint8_t *payload, uint8_t *payload_len);
 uint16_t at_frame_recv(uint8_t *buf, uint16_t buf_max, uint32_t timeout_ms, uint16_t expected_opcode);
+uint16_t at_frame_try(uint8_t *buf, uint16_t buf_max, uint16_t expected_opcode);
 
 #endif

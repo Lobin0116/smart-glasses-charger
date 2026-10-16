@@ -9,6 +9,7 @@ typedef enum
     LED_GREEN,
     LED_BLUE,
     LED_WHITE,
+    LED_ORANGE,
     LED_COLOR_COUNT,
 } led_color_t;
 

@@ -11,13 +11,9 @@ static uint8_t btn_case_soc;
 
 void button_set_case_soc(uint8_t soc) { btn_case_soc = soc; }
 
-#define DEBOUNCE_MS 50U
-#define SHORT_PRESS_MS 2000U
-
 typedef enum
 {
     BTN_IDLE,
-    BTN_DEBOUNCE,
     BTN_PRESSED,
 } btn_state_t;
 
@@ -47,26 +43,13 @@ void button_poll(void)
             if (btn_raw_pressed) {
                 btn_raw_pressed = false;
                 btn_press_ms = now;
-                btn_state = BTN_DEBOUNCE;
-            }
-            break;
-
-        case BTN_DEBOUNCE:
-            if (hal_timer_expired(btn_press_ms, DEBOUNCE_MS)) {
-                if (hal_key_pressed()) {
-                    btn_state = BTN_PRESSED;
-                } else {
-                    btn_state = BTN_IDLE;
-                }
+                btn_state = BTN_PRESSED;
+                led_effect_show_battery(&g_led_ctx, btn_case_soc);
             }
             break;
 
         case BTN_PRESSED:
             if (!hal_key_pressed()) {
-                uint32_t held = hal_timer_elapsed(btn_press_ms);
-                if (held < SHORT_PRESS_MS) {
-                    led_effect_show_battery(&g_led_ctx, btn_case_soc);
-                }
                 btn_state = BTN_IDLE;
             }
             break;

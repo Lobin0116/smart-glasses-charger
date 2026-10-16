@@ -15,6 +15,7 @@
 #define LED_ON_DUTY_PCT LED_MAX_DUTY_PCT
 
 #define LED_BLINK_DUTY_PCT LED_MAX_DUTY_PCT
+#define LED_ORANGE_GREEN_PCT 20U
 
 typedef struct
 {
@@ -39,6 +40,10 @@ static void led_hw_write(led_color_t color, bool on)
             break;
         case LED_WHITE:
             on ? hal_led_white_on() : hal_led_white_off();
+            break;
+        case LED_ORANGE:
+
+            on ? (hal_led_red_on(), hal_led_green_on()) : (hal_led_red_off(), hal_led_green_off());
             break;
         default:
             break;
@@ -76,6 +81,13 @@ void led_set(led_color_t color, led_mode_t mode)
     if (color >= LED_COLOR_COUNT) {
         return;
     }
+
+    for (uint32_t i = 0U; i < LED_COLOR_COUNT; i++) {
+        if (i != (uint32_t)color) {
+            leds[i].mode = LED_OFF;
+            led_apply(&leds[i], (led_color_t)i, false);
+        }
+    }
     led_state_t *state = &leds[color];
     state->mode = mode;
     state->phase_start = hal_timer_get_ms();
@@ -96,12 +108,10 @@ void led_all_off(void)
 void led_set_by_soc(uint8_t soc)
 {
     led_color_t color;
-    if (soc > 40U) {
-        color = LED_WHITE;
-    } else if (soc >= 15U) {
+    if (soc > 80U) {
         color = LED_GREEN;
     } else {
-        color = LED_RED;
+        color = LED_ORANGE;
     }
     led_set(color, LED_ON);
 }
@@ -123,19 +133,36 @@ void led_pwm_tick(void)
         if (mode == LED_OFF) {
             continue;
         }
+
+        uint32_t duty;
         if (mode == LED_ON) {
 
-            led_apply(state, (led_color_t)i, pwm_sub < LED_ON_DUTY_PCT);
-            continue;
-        }
-        if (mode == LED_BREATH) {
+            duty = LED_ON_DUTY_PCT;
+        } else if (mode == LED_BREATH) {
             uint32_t phase = (now_ms - state->phase_start) % LED_BREATH_PERIOD_MS;
-            uint32_t duty = led_breath_duty(phase);
-            led_apply(state, (led_color_t)i, pwm_sub < duty);
+            duty = led_breath_duty(phase);
         } else {
             uint32_t phase = (now_ms - state->phase_start) % LED_BLINK_PERIOD_MS;
-            bool in_on_half = phase < (LED_BLINK_PERIOD_MS / 2U);
-            led_apply(state, (led_color_t)i, in_on_half && (pwm_sub < LED_BLINK_DUTY_PCT));
+            duty = (phase < (LED_BLINK_PERIOD_MS / 2U)) ? LED_BLINK_DUTY_PCT : 0U;
+        }
+
+        if ((led_color_t)i == LED_ORANGE) {
+
+            bool red_on = pwm_sub < duty;
+            bool green_on = pwm_sub < ((duty * LED_ORANGE_GREEN_PCT) / 100U);
+            state->last_on = red_on;
+            if (red_on) {
+                hal_led_red_on();
+            } else {
+                hal_led_red_off();
+            }
+            if (green_on) {
+                hal_led_green_on();
+            } else {
+                hal_led_green_off();
+            }
+        } else {
+            led_apply(state, (led_color_t)i, pwm_sub < duty);
         }
     }
 }

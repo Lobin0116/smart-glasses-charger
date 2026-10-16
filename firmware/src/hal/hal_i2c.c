@@ -4,6 +4,7 @@
 #include "gd32e23x.h"
 #include "hal_i2c.h"
 #include "hal_timer.h"
+#include "hal_wwdgt.h"
 
 #define HAL_I2C_BUS_FREQ_HZ 200000U
 
@@ -13,6 +14,8 @@ static bool hal_i2c_wait_flag(i2c_flag_enum flag, FlagStatus expected)
 {
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) != expected) {
+
+        hal_wwdgt_feed();
         if (hal_timer_expired(start, HAL_I2C_TIMEOUT_MS)) {
             return false;
         }
@@ -24,6 +27,7 @@ static bool hal_i2c_wait_or_err(i2c_flag_enum flag)
 {
     uint32_t start = hal_timer_get_ms();
     while (i2c_flag_get(I2C0, flag) == RESET) {
+        hal_wwdgt_feed();
         if (i2c_flag_get(I2C0, I2C_FLAG_AERR) == SET) {
             i2c_flag_clear(I2C0, I2C_FLAG_AERR);
             return false;

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "at_types.h"
 #include "state_machine.h"
 
 #define HANDSHAKE_5V_MS 300U
@@ -18,11 +19,16 @@
 #define SHUTDOWN_RETRY_COUNT 5U
 #define COMM_TIMEOUT_MS 100U
 #define RECHARGE_THRESHOLD 98U
+void pogo_start(sm_ctx_t *ctx, bool pulse, uint8_t hb_retries);
 
-bool sm_do_handshake(sm_ctx_t *ctx);
-bool sm_do_charge_poll(sm_ctx_t *ctx);
-bool sm_do_maintain_heartbeat(sm_ctx_t *ctx);
-bool sm_do_force_charge_probe(sm_ctx_t *ctx);
+void pogo_tick(sm_ctx_t *ctx);
+
+bool pogo_busy(void);
+
+bool pogo_done_ok(void);
+
+const at_glass_data *pogo_reply(void);
+
 bool sm_do_shutdown(void);
 
 uint8_t sm_build_case_soc_byte(uint8_t soc, bool charging);
