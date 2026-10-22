@@ -8,6 +8,11 @@ did. For the firmware this is indistinguishable from glasses on the
 pins: handshake, charge polling, LED policy, force-charge gating and OTA
 all run their real code paths.
 
+Every chunk the adapter receives is logged as a RAW line (valid frames
+or not) and everything tees to --log-file (default sim_log.txt, append
+mode) so a whole bench session can be handed over for analysis.
+NO RAW LINES AT ALL = the adapter RX is not connected to the case TX.
+
 Bench scenarios:
   normal presence        python glasses_sim.py --port COM5 --soc 50
   full glasses           --soc 100 --full
@@ -66,6 +71,15 @@ _CRC_TABLE = bytes([
     0xC1, 0xF0, 0xA3, 0x92, 0x05, 0x34, 0x67, 0x56, 0x78, 0x49, 0x1A, 0x2B, 0xBC, 0x8D, 0xDE, 0xEF,
     0x82, 0xB3, 0xE0, 0xD1, 0x46, 0x77, 0x24, 0x15, 0x3B, 0x0A, 0x59, 0x68, 0xFF, 0xCE, 0x9D, 0xAC])
 
+_LOG_FILE = None  # optional tee target, opened by main()
+
+
+def emit(line: str) -> None:
+    print(line, flush=True)
+    if _LOG_FILE is not None:
+        _LOG_FILE.write(line + "\n")
+        _LOG_FILE.flush()
+
 
 def crc8(data: bytes) -> int:
     crc = 0
@@ -81,7 +95,7 @@ def pack_rsp(opcode: int, status: int, payload: bytes) -> bytes:
 
 def log(tag: str, data: bytes, note: str = "") -> None:
     t = time.strftime("%H:%M:%S")
-    print("[%s] %s %s%s" % (t, tag, data.hex(" ")[:72], (" " + note) if note else ""), flush=True)
+    emit("[%s] %s %s%s" % (t, tag, data.hex(" ")[:72], (" " + note) if note else ""))
 
 
 class Sim:
@@ -120,12 +134,18 @@ class Sim:
 def run(args):
     sim = Sim(args)
     ser = serial.Serial(args.port, args.baud, timeout=0.02)
-    print("glasses sim on %s@%d: soc=%d full=%s ver=%d fw=%s deaf=%s latency=%dms -- Ctrl-C to go silent"
-          % (args.port, args.baud, args.soc, args.full, args.version,
-             ("%dB" % len(sim.fw)) if sim.fw else "none", args.deaf, args.latency), flush=True)
+    emit("glasses sim on %s@%d: soc=%d full=%s ver=%d fw=%s deaf=%s latency=%dms -- Ctrl-C to go silent"
+         % (args.port, args.baud, args.soc, args.full, args.version,
+            ("%dB" % len(sim.fw)) if sim.fw else "none", args.deaf, args.latency))
     buf = b""
     while True:
-        buf += ser.read(64)
+        chunk = ser.read(64)
+        if chunk:
+            # Raw byte trace: EVERYTHING the adapter sees, valid frames or
+            # not. No RAW lines at all = adapter RX not on the case TX.
+            ts = time.strftime("%H:%M:%S.%f")[:-3]
+            emit("[%s] RAW %3d B: %s" % (ts, len(chunk), chunk.hex(" ")))
+        buf += chunk
         while True:
             start = buf.find(REQ_MAGIC)
             if start < 0:
@@ -176,16 +196,26 @@ def main():
     ap.add_argument("--ota-fw", help="firmware file to serve over OTA (enables agree)")
     ap.add_argument("--deaf", action="store_true", help="log frames but never answer (dead glasses)")
     ap.add_argument("--latency", type=int, default=5, help="reply delay in ms (reply window is 100)")
+    ap.add_argument("--log-file", default="sim_log.txt",
+                    help="tee everything (raw bytes + frames) to this file, append mode")
     ap.add_argument("--selftest", action="store_true", help="validate packer against captures and exit")
     args = ap.parse_args()
+    global _LOG_FILE
+    _LOG_FILE = open(args.log_file, "a", encoding="utf-8")
+    emit("=== session start: %s ===" % time.strftime("%Y-%m-%d %H:%M:%S"))
     if args.selftest:
-        sys.exit(selftest())
+        rc = selftest()
+        _LOG_FILE.close()
+        sys.exit(rc)
     if not args.port:
         ap.error("--port is required (or --selftest)")
     try:
         run(args)
     except KeyboardInterrupt:
-        print("\nsim gone silent (seen-then-silent scenario)")
+        emit("sim gone silent (seen-then-silent scenario)")
+    finally:
+        if _LOG_FILE is not None:
+            _LOG_FILE.close()
 
 
 if __name__ == "__main__":
