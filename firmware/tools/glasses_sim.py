@@ -89,9 +89,17 @@ def crc8(data: bytes) -> int:
     return crc
 
 
+CRC_SPAN_NEW = True  # flipped by --crc-old
+
+
 def pack_rsp(opcode: int, status: int, payload: bytes) -> bytes:
     body = struct.pack("<HHB", len(payload), opcode, status) + payload
-    return RSP_MAGIC + bytes([crc8(body)]) + body
+    if CRC_SPAN_NEW:
+        # Corrected span (matches the real glasses and the fixed firmware):
+        # CRC over the bytes AFTER the CRC byte only.
+        return RSP_MAGIC + bytes([crc8(body)]) + body
+    # Pre-fix firmware span: CRC also covers the 4-byte magic.
+    return RSP_MAGIC + bytes([crc8(RSP_MAGIC + body)]) + body
 
 
 def log(tag: str, data: bytes, note: str = "") -> None:
@@ -197,11 +205,16 @@ def main():
     ap.add_argument("--ota-fw", help="firmware file to serve over OTA (enables agree)")
     ap.add_argument("--deaf", action="store_true", help="log frames but never answer (dead glasses)")
     ap.add_argument("--latency", type=int, default=5, help="reply delay in ms (reply window is 100)")
+    ap.add_argument("--crc-old", action="store_true",
+                    help="send the PRE-FIX CRC span (magic included) for probing old images")
     ap.add_argument("--log-file", default="sim_log.txt",
                     help="tee everything (raw bytes + frames) to this file, append mode")
     ap.add_argument("--selftest", action="store_true", help="validate packer against captures and exit")
     args = ap.parse_args()
-    global _LOG_FILE
+    global _LOG_FILE, CRC_SPAN_NEW
+    CRC_SPAN_NEW = not args.crc_old
+    if args.crc_old:
+        print("NOTE: --crc-old sends the pre-fix CRC span (magic included)")
     _LOG_FILE = open(args.log_file, "a", encoding="utf-8")
     emit("=== session start: %s ===" % time.strftime("%Y-%m-%d %H:%M:%S"))
     if args.selftest:
