@@ -35,6 +35,7 @@ import argparse
 import struct
 import sys
 import time
+from datetime import datetime
 
 try:
     import serial
@@ -143,7 +144,7 @@ def run(args):
         if chunk:
             # Raw byte trace: EVERYTHING the adapter sees, valid frames or
             # not. No RAW lines at all = adapter RX not on the case TX.
-            ts = time.strftime("%H:%M:%S.%f")[:-3]
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             emit("[%s] RAW %3d B: %s" % (ts, len(chunk), chunk.hex(" ")))
         buf += chunk
         while True:
